@@ -70,7 +70,13 @@ class B2Storage
         }
 
         $auth = self::getAuth();
-        $fileSize = filesize($filePath);
+        $fileBytes = file_get_contents($filePath);
+        if ($fileBytes === false) {
+            throw new RuntimeException("Impossible de lire le fichier: {$filePath}");
+        }
+
+        $fileSize = strlen($fileBytes);
+        $fileSha1 = sha1($fileBytes);
         $extension = strtolower(pathinfo($originalFileName, PATHINFO_EXTENSION));
         $uniqueName = 'chat_' . bin2hex(random_bytes(10)) . ($extension ? '.' . $extension : '');
 
@@ -92,20 +98,18 @@ class B2Storage
         curl_close($ch);
 
         if ($httpCode !== 200 || !$res) {
-            throw new RuntimeException("Impossible d'obtenir l'URL d'upload B2");
+            throw new RuntimeException("Impossible d'obtenir l'URL d'upload B2 (code {$httpCode}): " . $res);
         }
 
         $uploadMeta = json_decode($res, true);
         $uploadUrl = $uploadMeta['uploadUrl'];
         $uploadAuthToken = $uploadMeta['authorizationToken'];
 
-        // 2. Upload file bytes
-        $fileSha1 = sha1_file($filePath);
-        $fileHandle = fopen($filePath, 'rb');
-
         // Determine content type
-        $mimeType = mime_content_type($filePath) ?: 'application/octet-stream';
+        $finfo = new finfo(FILEINFO_MIME_TYPE);
+        $mimeType = $finfo->buffer($fileBytes) ?: 'application/octet-stream';
 
+        // 2. Upload file bytes via POST
         $ch = curl_init($uploadUrl);
         curl_setopt_array($ch, [
             CURLOPT_HTTPHEADER => [
@@ -116,19 +120,17 @@ class B2Storage
                 'X-Bz-Content-Sha1: ' . $fileSha1
             ],
             CURLOPT_POST => true,
-            CURLOPT_INFILE => $fileHandle,
-            CURLOPT_INFILESIZE => $fileSize,
+            CURLOPT_POSTFIELDS => $fileBytes,
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_TIMEOUT => 60
         ]);
 
         $uploadRes = curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        fclose($fileHandle);
         curl_close($ch);
 
         if ($httpCode !== 200 || !$uploadRes) {
-            throw new RuntimeException("Erreur de téléversement vers B2 (code {$httpCode})");
+            throw new RuntimeException("Erreur de téléversement vers B2 (code {$httpCode}): " . $uploadRes);
         }
 
         $fileData = json_decode($uploadRes, true);
