@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120">
+  <defs>
+    <linearGradient id="fireOuter" x1="0%" y1="100%" x2="0%" y2="0%">
+      <stop offset="0%" stop-color="#d50000" />
+      <stop offset="60%" stop-color="#ff6d00" />
+      <stop offset="100%" stop-color="#ffd600" />
+    </linearGradient>
+    <linearGradient id="fireInner" x1="0%" y1="100%" x2="0%" y2="0%">
+      <stop offset="0%" stop-color="#ffab00" />
+      <stop offset="100%" stop-color="#ffffff" />
+    </linearGradient>
+    <filter id="fireGlow">
+      <feDropShadow dx="0" dy="0" stdDeviation="5" flood-color="#ff6d00" flood-opacity="0.8" />
+    </filter>
+  </defs>
+  <style>
+    .flame-main {
+      transform-origin: 60px 105px;
+      animation: flicker 0.5s ease-in-out infinite alternate;
+    }
+    .flame-spark {
+      animation: rise 0.8s linear infinite;
+    }
+    @keyframes flicker {
+      0% { transform: scale(0.95, 0.98) skewX(-2deg); }
+      50% { transform: scale(1.04, 1.05) skewX(3deg); }
+      100% { transform: scale(0.98, 1.02) skewX(-1deg); }
+    }
+    @keyframes rise {
+      0% { opacity: 1; transform: translateY(0) scale(1); }
+      100% { opacity: 0; transform: translateY(-35px) scale(0.3); }
+    }
+  </style>
+  <g class="flame-main" filter="url(#fireGlow)">
+    <!-- Outer Flame -->
+    <path d="M60 10 C60 10, 80 40, 75 58 C85 45, 96 60, 96 78 C96 98, 80 110, 60 110 C40 110, 24 98, 24 78 C24 55, 42 42, 46 25 C50 38, 60 10, 60 10 Z" fill="url(#fireOuter)" />
+    <!-- Inner Flame -->
+    <path d="M60 50 C60 50, 72 70, 70 82 C74 76, 78 80, 78 88 C78 98, 70 104, 60 104 C50 104, 42 98, 42 88 C42 75, 52 68, 54 58 C56 65, 60 50, 60 50 Z" fill="url(#fireInner)" />
+  </g>
+  <circle cx="52" cy="30" r="3" fill="#ffd600" class="flame-spark" />
+  <circle cx="70" cy="40" r="2.5" fill="#ff6d00" class="flame-spark" style="animation-delay: 0.3s;" />
+</svg>

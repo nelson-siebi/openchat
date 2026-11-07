@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120">
+  <defs>
+    <linearGradient id="heartGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ff2a6d" />
+      <stop offset="100%" stop-color="#9b00e8" />
+    </linearGradient>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="0" stdDeviation="6" flood-color="#ff2a6d" flood-opacity="0.8" />
+    </filter>
+  </defs>
+  <style>
+    .heart-pulse {
+      transform-origin: center;
+      animation: beat 0.9s cubic-bezier(0.2, 0.8, 0.2, 1) infinite;
+    }
+    .heart-sparkle {
+      animation: sparkle 1.8s ease-in-out infinite alternate;
+    }
+    @keyframes beat {
+      0% { transform: scale(0.85); }
+      25% { transform: scale(1.18); }
+      40% { transform: scale(0.95); }
+      60% { transform: scale(1.22); }
+      100% { transform: scale(0.85); }
+    }
+    @keyframes sparkle {
+      0% { opacity: 0.2; transform: scale(0.5); }
+      100% { opacity: 1; transform: scale(1.2); }
+    }
+  </style>
+  <g class="heart-pulse" filter="url(#glow)">
+    <path d="M60 102 C60 102, 14 74, 14 42 C14 24, 28 14, 44 14 C54 14, 60 22, 60 22 C60 22, 66 14, 76 14 C92 14, 106 24, 106 42 C106 74, 60 102, 60 102 Z" fill="url(#heartGrad)" />
+    <!-- Glossy reflection -->
+    <path d="M30 32 C38 22, 50 20, 50 20 C42 26, 32 38, 30 52 C26 44, 26 36, 30 32 Z" fill="#ffffff" opacity="0.6" />
+  </g>
+  <circle cx="26" cy="22" r="3" fill="#ffffff" class="heart-sparkle" />
+  <circle cx="94" cy="26" r="4" fill="#ff70a6" class="heart-sparkle" style="animation-delay: 0.4s;" />
+</svg>

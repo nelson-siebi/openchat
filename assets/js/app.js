@@ -1,6 +1,6 @@
 /**
  * OpenChat - Client Application Logic
- * PWA + Voice Notes + Browser Notifications + Emojis + Replies + Likes/Reactions + Captions
+ * PWA + Voice Notes + Browser Notifications + Animated Stickers + File Direct Download + Robust Copy
  */
 
 class OpenChatApp {
@@ -9,6 +9,7 @@ class OpenChatApp {
         this.username = localStorage.getItem('openchat_username') || this.generateDefaultUsername();
         this.lastMessageId = 0;
         this.seenMessageIds = new Set();
+        this.messagesById = new Map();
         this.eventSource = null;
         this.pollTimer = null;
         this.soundEnabled = localStorage.getItem('openchat_sound') !== 'false';
@@ -53,6 +54,7 @@ class OpenChatApp {
         this.setupVoiceRecording();
         this.setupClipboardAndDrop();
         this.setupSmartScroll();
+        this.setupDelegatedEvents();
         this.setupLiveSync();
         this.fetchInitialMessages();
         this.renderRecentRoomsList();
@@ -94,7 +96,7 @@ class OpenChatApp {
 
     sendBrowserNotification(sender, text) {
         if (!('Notification' in window) || Notification.permission !== 'granted') return;
-        if (!document.hidden) return; // Only notify when user is in another tab or background
+        if (!document.hidden) return;
 
         try {
             const title = `${sender} (OpenChat)`;
@@ -386,7 +388,7 @@ class OpenChatApp {
     }
 
     // ==========================================
-    // EMOJI PICKER POPOVER
+    // EMOJI & ANIMATED STICKERS PICKER (WHATSAPP STYLE)
     // ==========================================
     setupEmojiPicker() {
         const btnEmoji = document.getElementById('btnToggleEmoji');
@@ -400,14 +402,63 @@ class OpenChatApp {
             '👀', '👋', '🌟', '⚡', '☕', '💡', '📌', '🔒', '📱', '💻', '✉️', '📎'
         ];
 
-        popover.innerHTML = emojis.map(em => `<button type="button" class="emoji-btn">${em}</button>`).join('');
+        const animatedStickers = [
+            { name: 'Cœur Battant', file: 'assets/stickers/heart_beat.svg' },
+            { name: 'Mort de Rire', file: 'assets/stickers/laugh_tears.svg' },
+            { name: 'En Feu', file: 'assets/stickers/fire_blast.svg' },
+            { name: 'Fête & Confettis', file: 'assets/stickers/party_popper.svg' },
+            { name: 'Super Pouce', file: 'assets/stickers/thumbs_up.svg' },
+            { name: 'Fusée Décollage', file: 'assets/stickers/rocket_blast.svg' }
+        ];
 
-        btnEmoji.addEventListener('click', (e) => {
-            e.stopPropagation();
-            popover.style.display = popover.style.display === 'grid' ? 'none' : 'grid';
+        popover.innerHTML = `
+            <div class="emoji-popover-tabs">
+                <button type="button" class="emoji-tab-btn active" data-tab="stickers">✨ Stickers Animés</button>
+                <button type="button" class="emoji-tab-btn" data-tab="emojis">😀 Emojis</button>
+            </div>
+            <div id="tabContentStickers" class="stickers-grid">
+                ${animatedStickers.map(st => `
+                    <button type="button" class="sticker-item-btn" data-sticker-url="${st.file}" title="${st.name}">
+                        <img src="${st.file}" class="sticker-item-img" alt="${st.name}" />
+                    </button>
+                `).join('')}
+            </div>
+            <div id="tabContentEmojis" class="emoji-grid" style="display: none;">
+                ${emojis.map(em => `<button type="button" class="emoji-btn">${em}</button>`).join('')}
+            </div>
+        `;
+
+        // Tab Switching
+        popover.querySelectorAll('.emoji-tab-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                popover.querySelectorAll('.emoji-tab-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+
+                const targetTab = btn.dataset.tab;
+                const tabStickers = document.getElementById('tabContentStickers');
+                const tabEmojis = document.getElementById('tabContentEmojis');
+
+                if (targetTab === 'stickers') {
+                    tabStickers.style.display = 'grid';
+                    tabEmojis.style.display = 'none';
+                } else {
+                    tabStickers.style.display = 'none';
+                    tabEmojis.style.display = 'grid';
+                }
+            });
         });
 
+        // Click on animated sticker: sends immediately like WhatsApp
         popover.addEventListener('click', (e) => {
+            const stickerBtn = e.target.closest('.sticker-item-btn');
+            if (stickerBtn) {
+                const url = stickerBtn.dataset.stickerUrl;
+                this.sendSticker(url);
+                popover.style.display = 'none';
+                return;
+            }
+
             if (e.target.classList.contains('emoji-btn')) {
                 const em = e.target.textContent;
                 const msgInput = document.getElementById('messageInput');
@@ -418,8 +469,12 @@ class OpenChatApp {
                     msgInput.focus();
                     msgInput.selectionStart = msgInput.selectionEnd = start + em.length;
                 }
-                popover.style.display = 'none';
             }
+        });
+
+        btnEmoji.addEventListener('click', (e) => {
+            e.stopPropagation();
+            popover.style.display = popover.style.display === 'flex' ? 'none' : 'flex';
         });
 
         document.addEventListener('click', (e) => {
@@ -427,6 +482,28 @@ class OpenChatApp {
                 popover.style.display = 'none';
             }
         });
+    }
+
+    async sendSticker(stickerUrl) {
+        try {
+            const res = await fetch('api/messages.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    room_code: this.roomCode,
+                    sender: this.username,
+                    content: 'Sticker',
+                    type: 'sticker',
+                    file_url: stickerUrl
+                })
+            });
+            const data = await res.json();
+            if (data.success && data.message) {
+                this.appendMessage(data.message);
+            }
+        } catch (e) {
+            this.showToast('Erreur d\'envoi du sticker.');
+        }
     }
 
     setupModals() {
@@ -688,6 +765,96 @@ class OpenChatApp {
     }
 
     // ==========================================
+    // DELEGATED EVENTS: COPY, DOWNLOAD, REPLY, REACT
+    // ==========================================
+    setupDelegatedEvents() {
+        const container = document.getElementById('chatMessages');
+        if (!container) return;
+
+        container.addEventListener('click', (e) => {
+            // 1. Direct File Download Handler
+            const downloadBtn = e.target.closest('[data-download-url]');
+            if (downloadBtn) {
+                e.preventDefault();
+                const url = downloadBtn.dataset.downloadUrl;
+                const name = downloadBtn.dataset.downloadName || 'fichier';
+                this.forceDownload(url, name);
+                return;
+            }
+
+            // 2. Robust Message Copy Handler
+            const copyBtn = e.target.closest('[data-copy-id], [data-copy-text]');
+            if (copyBtn) {
+                e.preventDefault();
+                if (copyBtn.dataset.copyText) {
+                    this.copyText(copyBtn.dataset.copyText);
+                } else if (copyBtn.dataset.copyId) {
+                    const msgId = parseInt(copyBtn.dataset.copyId, 10);
+                    const msg = this.messagesById.get(msgId);
+                    if (msg) {
+                        this.copyText(msg.file_url || msg.content);
+                    }
+                }
+                return;
+            }
+
+            // 3. Reply Handler
+            const replyBtn = e.target.closest('[data-reply-id]');
+            if (replyBtn) {
+                e.preventDefault();
+                const msgId = parseInt(replyBtn.dataset.replyId, 10);
+                const msg = this.messagesById.get(msgId);
+                if (msg) {
+                    this.setPendingReply(msg.id, msg.sender, msg.content);
+                }
+                return;
+            }
+
+            // 4. Reaction Handler
+            const reactBtn = e.target.closest('[data-react-id]');
+            if (reactBtn) {
+                e.preventDefault();
+                const msgId = parseInt(reactBtn.dataset.reactId, 10);
+                const emoji = reactBtn.dataset.reactEmoji || '❤️';
+                this.reactToMessage(msgId, emoji);
+                return;
+            }
+        });
+    }
+
+    // ==========================================
+    // DIRECT FORCED FILE DOWNLOAD (CROSS-ORIGIN SAFE)
+    // ==========================================
+    async forceDownload(url, fileName) {
+        this.showToast('Téléchargement en cours...');
+
+        try {
+            // Attempt same-origin blob download
+            const res = await fetch(url);
+            if (!res.ok) throw new Error('Fetch failed');
+
+            const blob = await res.blob();
+            const blobUrl = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.style.display = 'none';
+            a.href = blobUrl;
+            a.download = fileName || 'fichier';
+            document.body.appendChild(a);
+            a.click();
+
+            setTimeout(() => {
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(blobUrl);
+            }, 2000);
+
+            this.showToast('Téléchargement terminé !');
+        } catch (err) {
+            // Fallback to server download proxy header
+            window.location.href = `api/download.php?url=${encodeURIComponent(url)}&name=${encodeURIComponent(fileName)}`;
+        }
+    }
+
+    // ==========================================
     // SENDING MESSAGES & FILES
     // ==========================================
     async sendMessage() {
@@ -696,7 +863,6 @@ class OpenChatApp {
 
         const content = input.value.trim();
 
-        // Case 1: We have a pending file with optional description/caption
         if (this.pendingFile) {
             const fileToSend = this.pendingFile;
             this.clearActiveContext();
@@ -706,7 +872,6 @@ class OpenChatApp {
             return;
         }
 
-        // Case 2: Standard text message (with optional reply)
         if (!content) return;
 
         input.value = '';
@@ -821,8 +986,9 @@ class OpenChatApp {
                 const pill = document.createElement('button');
                 pill.type = 'button';
                 pill.className = 'reaction-pill';
+                pill.setAttribute('data-react-id', messageId);
+                pill.setAttribute('data-react-emoji', emoji);
                 pill.innerHTML = `<span>${emoji}</span> <span class="count">${count}</span>`;
-                pill.onclick = () => this.reactToMessage(messageId, emoji);
                 container.appendChild(pill);
             }
         }
@@ -894,6 +1060,7 @@ class OpenChatApp {
     appendMessage(msg, notify = false) {
         if (this.seenMessageIds.has(msg.id)) return;
         this.seenMessageIds.add(msg.id);
+        this.messagesById.set(parseInt(msg.id, 10), msg);
         this.lastMessageId = Math.max(this.lastMessageId, parseInt(msg.id, 10));
 
         // CHECK FOR QR PAIRING NOTIFICATION
@@ -922,7 +1089,8 @@ class OpenChatApp {
 
         const isMine = msg.sender === this.username;
         const row = document.createElement('div');
-        row.className = `message-row ${isMine ? 'mine' : 'theirs'}`;
+        const isSticker = msg.type === 'sticker';
+        row.className = `message-row ${isMine ? 'mine' : 'theirs'} ${isSticker ? 'sticker' : ''}`;
         row.setAttribute('data-msg-id', msg.id);
 
         const timeStr = this.formatTime(msg.created_at);
@@ -939,7 +1107,12 @@ class OpenChatApp {
         }
 
         let contentHtml = '';
-        if (msg.type === 'image' && msg.file_url) {
+        if (isSticker && msg.file_url) {
+            // Floating WhatsApp-style animated sticker
+            contentHtml = `
+                <img src="${this.escapeHtml(msg.file_url)}" class="sticker-img" alt="Sticker" loading="lazy" />
+            `;
+        } else if (msg.type === 'image' && msg.file_url) {
             const hasCaption = msg.content && msg.content !== msg.file_name;
             contentHtml = `
                 <a href="${this.escapeHtml(msg.file_url)}" target="_blank" rel="noopener">
@@ -969,9 +1142,9 @@ class OpenChatApp {
                         <a href="${this.escapeHtml(msg.file_url)}" target="_blank" rel="noopener" class="file-btn">
                             👁️ Ouvrir
                         </a>
-                        <a href="${this.escapeHtml(msg.file_url)}" download="${this.escapeHtml(msg.file_name || 'fichier')}" class="file-btn file-btn-primary">
+                        <button type="button" class="file-btn file-btn-primary" data-download-url="${this.escapeHtml(msg.file_url)}" data-download-name="${this.escapeHtml(msg.file_name || 'fichier')}">
                             ⬇️ Télécharger
-                        </a>
+                        </button>
                     </div>
                 </div>
             `;
@@ -979,7 +1152,7 @@ class OpenChatApp {
             contentHtml = `
                 <span class="inline-copyable">
                     <a href="${this.escapeHtml(msg.content)}" target="_blank" rel="noopener">${this.escapeHtml(msg.content)}</a>
-                    <button class="btn-inline-copy" title="Copier le lien" onclick="window.openChatApp.copyText('${this.escapeHtml(msg.content)}')">📋</button>
+                    <button type="button" class="btn-inline-copy" title="Copier le lien" data-copy-text="${this.escapeHtml(msg.content)}">📋</button>
                 </span>
             `;
         } else {
@@ -989,10 +1162,10 @@ class OpenChatApp {
         // Action chips bar (Reply, Like, Copy)
         const actionsHtml = `
             <div class="message-actions-bar">
-                <button type="button" class="action-chip" title="Répondre à ce message" onclick="window.openChatApp.setPendingReply(${msg.id}, '${this.escapeHtml(msg.sender)}', '${this.escapeHtml(msg.content || '')}')">↩️ Répondre</button>
-                <button type="button" class="action-chip" title="Liker" onclick="window.openChatApp.reactToMessage(${msg.id}, '❤️')">❤️</button>
-                <button type="button" class="action-chip" title="Approuver" onclick="window.openChatApp.reactToMessage(${msg.id}, '👍')">👍</button>
-                <button type="button" class="action-chip" title="Copier" onclick="window.openChatApp.copyText('${this.escapeHtml(msg.file_url || msg.content)}')">📋 Copier</button>
+                <button type="button" class="action-chip" title="Répondre" data-reply-id="${msg.id}">↩️ Répondre</button>
+                <button type="button" class="action-chip" title="Liker" data-react-id="${msg.id}" data-react-emoji="❤️">❤️</button>
+                <button type="button" class="action-chip" title="Approuver" data-react-id="${msg.id}" data-react-emoji="👍">👍</button>
+                <button type="button" class="action-chip" title="Copier" data-copy-id="${msg.id}">📋 Copier</button>
             </div>
         `;
 
@@ -1020,7 +1193,6 @@ class OpenChatApp {
             } catch (e) {}
         }
 
-        // Bind custom audio players if any
         if (msg.type === 'audio') {
             this.initAudioPlayer(row);
         }
@@ -1117,19 +1289,44 @@ class OpenChatApp {
         }
     }
 
+    // ==========================================
+    // ROBUST CLIPBOARD COPY
+    // ==========================================
     copyText(str, successMessage = 'Copié dans le presse-papier !') {
         if (!str) return;
-        navigator.clipboard.writeText(str).then(() => {
-            this.showToast(successMessage);
-        }).catch(() => {
+
+        if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(str).then(() => {
+                this.showToast(successMessage);
+            }).catch(() => {
+                this.fallbackCopy(str, successMessage);
+            });
+        } else {
+            this.fallbackCopy(str, successMessage);
+        }
+    }
+
+    fallbackCopy(str, successMessage) {
+        try {
             const el = document.createElement('textarea');
             el.value = str;
+            el.setAttribute('readonly', '');
+            el.style.position = 'fixed';
+            el.style.left = '-9999px';
+            el.style.top = '0';
             document.body.appendChild(el);
             el.select();
-            document.execCommand('copy');
+            el.setSelectionRange(0, 99999);
+            const successful = document.execCommand('copy');
             document.body.removeChild(el);
-            this.showToast(successMessage);
-        });
+            if (successful) {
+                this.showToast(successMessage);
+            } else {
+                this.showToast('Impossible de copier automatiquement.');
+            }
+        } catch (e) {
+            this.showToast('Erreur de copie.');
+        }
     }
 
     playNotificationSound() {
@@ -1212,16 +1409,14 @@ class OpenChatApp {
     }
 
     autolink(text) {
-        // 1. Detect emails
         const emailRegex = /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g;
         text = text.replace(emailRegex, (email) => {
-            return `<span class="inline-copyable"><a href="mailto:${email}" class="link-email">📧 ${email}</a><button type="button" class="btn-inline-copy" title="Copier l'email" onclick="window.openChatApp.copyText('${email}')">📋</button></span>`;
+            return `<span class="inline-copyable"><a href="mailto:${email}" class="link-email">📧 ${email}</a><button type="button" class="btn-inline-copy" title="Copier l'email" data-copy-text="${email}">📋</button></span>`;
         });
 
-        // 2. Detect links
         const urlRegex = /(https?:\/\/[^\s<]+[^<.,:;"')\]\s])/g;
         text = text.replace(urlRegex, (url) => {
-            return `<span class="inline-copyable"><a href="${url}" target="_blank" rel="noopener">🔗 ${url}</a><button type="button" class="btn-inline-copy" title="Copier le lien" onclick="window.openChatApp.copyText('${url}')">📋</button></span>`;
+            return `<span class="inline-copyable"><a href="${url}" target="_blank" rel="noopener">🔗 ${url}</a><button type="button" class="btn-inline-copy" title="Copier le lien" data-copy-text="${url}">📋</button></span>`;
         });
 
         return text;

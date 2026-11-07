@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120">
+  <defs>
+    <linearGradient id="coneGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ff9100" />
+      <stop offset="100%" stop-color="#d50000" />
+    </linearGradient>
+  </defs>
+  <style>
+    .cone {
+      transform-origin: 25px 95px;
+      animation: popJump 0.8s cubic-bezier(0.18, 0.89, 0.32, 1.28) infinite;
+    }
+    .confetti {
+      animation: confBurst 0.8s ease-out infinite;
+    }
+    @keyframes popJump {
+      0%, 100% { transform: scale(0.9) rotate(-10deg); }
+      50% { transform: scale(1.1) rotate(5deg); }
+    }
+    @keyframes confBurst {
+      0% { opacity: 0; transform: translate(0, 0) scale(0.2); }
+      50% { opacity: 1; }
+      100% { opacity: 0; transform: translate(var(--tx, 30px), var(--ty, -30px)) scale(1.2); }
+    }
+  </style>
+  <g class="cone">
+    <!-- Party Hat / Horn -->
+    <path d="M20 100 L45 50 L75 80 Z" fill="url(#coneGrad)" />
+    <!-- Stripes -->
+    <path d="M28 85 L48 70 L58 80" stroke="#ffd600" stroke-width="4" fill="none" />
+    <path d="M36 68 L52 58 L62 68" stroke="#00e676" stroke-width="4" fill="none" />
+  </g>
+  <!-- Flying Confetti -->
+  <circle cx="70" cy="45" r="4" fill="#00e5ff" class="confetti" style="--tx: 30px; --ty: -25px;" />
+  <rect x="80" y="35" width="8" height="5" rx="2" fill="#ffd600" class="confetti" style="--tx: 25px; --ty: -40px; transform: rotate(25deg);" />
+  <circle cx="60" cy="30" r="3.5" fill="#ff4081" class="confetti" style="--tx: 10px; --ty: -35px;" />
+  <rect x="85" y="55" width="7" height="4" rx="2" fill="#76ff03" class="confetti" style="--tx: 35px; --ty: -10px; transform: rotate(45deg);" />
+  <polygon points="50,20 54,28 62,28 56,33 58,41 50,36 42,41 44,33 38,28 46,28" fill="#ffd600" class="confetti" style="--tx: 5px; --ty: -30px;" />
+</svg>
