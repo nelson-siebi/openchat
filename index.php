@@ -22,7 +22,7 @@ $isPublicRoom = ($room['code'] === 'public');
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title><?= $isPublicRoom ? 'Salon Public - OpenChat' : 'Salon Privé : ' . htmlspecialchars($room['code']) . ' - OpenChat' ?></title>
     
     <!-- PWA & Meta -->
@@ -42,7 +42,7 @@ $isPublicRoom = ($room['code'] === 'public');
     <!-- Header -->
     <header class="app-header">
         <div class="header-left">
-            <button id="btnToggleSidebar" class="btn-icon" title="Menu des Salons">
+            <button id="btnToggleSidebar" class="btn-icon" title="Menu des Salons" aria-label="Menu">
                 ☰
             </button>
 
@@ -67,8 +67,8 @@ $isPublicRoom = ($room['code'] === 'public');
                 👤 Chargement...
             </button>
 
-            <button id="btnShowQr" class="btn btn-outline btn-sm" title="Synchroniser avec votre téléphone (QR Code)">
-                📱 <span class="btn-text-hide">QR Code</span>
+            <button id="btnShowQr" class="btn btn-outline btn-sm" title="Connecter un autre appareil (QR Code)">
+                📱 <span class="btn-text-hide">Connecter</span>
             </button>
 
             <button id="btnCopyShareLink" class="btn btn-outline btn-sm" title="Copier le lien direct du salon">
@@ -127,7 +127,7 @@ $isPublicRoom = ($room['code'] === 'public');
 
             <div class="sidebar-footer">
                 <a href="https://github.com/nelson-siebi/openchat" target="_blank" rel="noopener" class="btn btn-outline btn-sm" style="width: 100%;">
-                    ⭐ Projet Open-Source GitHub
+                    ⭐ Code Source GitHub
                 </a>
             </div>
         </aside>
@@ -136,7 +136,7 @@ $isPublicRoom = ($room['code'] === 'public');
         <main class="chat-main">
             <?php if ($isPublicRoom): ?>
                 <div class="public-banner">
-                    <span>💡 <strong>Salon Public :</strong> Tout le monde peut déposer des messages, photos, liens et fichiers ici. Pour un échange confidentiel, créez un salon privé.</span>
+                    <span>💡 <strong>Salon Public :</strong> Messages, photos, vocaux et fichiers partagés ici. Pour un échange confidentiel, créez un salon privé.</span>
                 </div>
             <?php endif; ?>
 
@@ -150,43 +150,79 @@ $isPublicRoom = ($room['code'] === 'public');
                 <!-- Messages will be injected dynamically -->
             </div>
 
+            <!-- Smart Scroll Down Button -->
+            <button id="btnScrollBottom" class="scroll-bottom-btn" title="Descendre aux nouveaux messages">
+                ⬇️ <span id="scrollBottomText">Nouveaux messages</span>
+            </button>
+
             <!-- Chat Input Footer -->
             <footer class="chat-footer">
                 <input type="file" id="fileInput" style="display: none;">
 
                 <div class="input-bar">
-                    <button type="button" id="btnAttachFile" class="btn-icon" title="Envoyer une photo ou un fichier">
-                        📎
-                    </button>
+                    <!-- Standard Input Bar Controls -->
+                    <div id="normalInputBar" style="display: flex; align-items: center; width: 100%; gap: 0.45rem;">
+                        <button type="button" id="btnAttachFile" class="btn-icon" title="Envoyer une photo ou un document">
+                            📎
+                        </button>
 
-                    <textarea 
-                        id="messageInput" 
-                        placeholder="<?= $isPublicRoom ? 'Écrivez dans le salon public, collez une image (Ctrl+V)...' : 'Écrivez dans ce salon privé, collez une image (Ctrl+V)...' ?>" 
-                        rows="1"
-                    ></textarea>
+                        <button type="button" id="btnStartVoice" class="btn-icon" title="Enregistrer un message vocal (Audio)">
+                            🎙️
+                        </button>
 
-                    <button type="button" id="btnSendMessage" class="btn btn-primary">
-                        <span>Envoyer</span> ➤
-                    </button>
+                        <textarea 
+                            id="messageInput" 
+                            placeholder="<?= $isPublicRoom ? 'Écrivez un message, collez un email ou une image (Ctrl+V)...' : 'Écrivez dans ce salon privé, collez une image (Ctrl+V)...' ?>" 
+                            rows="1"
+                        ></textarea>
+
+                        <button type="button" id="btnSendMessage" class="btn btn-primary" title="Envoyer le message">
+                            <span>Envoyer</span> ➤
+                        </button>
+                    </div>
+
+                    <!-- Voice Recording Mode Controls -->
+                    <div id="voiceRecordingBar" class="recording-bar">
+                        <div class="record-indicator">
+                            <span class="record-pulse"></span>
+                            <span>Enregistrement</span>
+                        </div>
+
+                        <span id="voiceRecordTimer" class="record-timer">00:00</span>
+
+                        <div style="flex: 1;"></div>
+
+                        <button type="button" id="btnCancelVoice" class="btn btn-outline btn-sm" style="color: var(--danger); border-color: rgba(239, 68, 68, 0.3);" title="Annuler le vocal">
+                            ✕ Annuler
+                        </button>
+
+                        <button type="button" id="btnSendVoice" class="btn btn-primary btn-sm" title="Envoyer le vocal">
+                            ✔ Envoyer le vocal
+                        </button>
+                    </div>
                 </div>
             </footer>
         </main>
     </div>
 
-    <!-- Modal QR Code -->
+    <!-- Modal QR Code & Live Pairing -->
     <div id="qrModal" class="modal-overlay">
         <div class="modal-content">
             <button id="qrModalClose" class="modal-close">&times;</button>
-            <h2 style="font-size: 1.25rem; margin-bottom: 0.5rem; color: #fff;">Connectez votre mobile</h2>
-            <p style="color: var(--text-secondary); font-size: 0.9rem;">
-                Scannez ce QR Code avec l'appareil photo de votre smartphone pour ouvrir ce salon immédiatement.
+            <h2 style="font-size: 1.25rem; margin-bottom: 0.4rem; color: #fff;">Connecter un autre appareil</h2>
+            <p style="color: var(--text-secondary); font-size: 0.88rem;">
+                Scannez ce QR Code avec l'appareil photo de votre smartphone ou tablette pour le connecter instantanément.
             </p>
 
             <div class="qr-box">
                 <div id="qrCodeContainer"></div>
             </div>
 
-            <p style="font-size: 0.82rem; color: var(--text-muted); word-break: break-all;" id="qrShareUrlText">
+            <div id="qrStatusBox" style="font-size: 0.82rem; color: #34d399; margin-bottom: 0.5rem; display: flex; align-items: center; justify-content: center; gap: 0.4rem;">
+                <span class="pulse-dot"></span> En attente du scan...
+            </div>
+
+            <p style="font-size: 0.8rem; color: var(--text-muted); word-break: break-all;" id="qrShareUrlText">
                 <?= htmlspecialchars(Config::getBaseUrl() . '/index.php?code=' . urlencode($room['code'])) ?>
             </p>
         </div>
@@ -197,11 +233,11 @@ $isPublicRoom = ($room['code'] === 'public');
         <div class="modal-content">
             <button id="createRoomModalClose" class="modal-close">&times;</button>
             <h2 style="font-size: 1.25rem; margin-bottom: 0.5rem; color: #fff;">Créer un Salon Privé</h2>
-            <p style="color: var(--text-secondary); font-size: 0.88rem; margin-bottom: 1.5rem;">
-                Un salon privé est protégé et accessible uniquement par les personnes ayant le lien direct ou le code.
+            <p style="color: var(--text-secondary); font-size: 0.88rem; margin-bottom: 1.25rem;">
+                Un salon privé est confidentiel, accessible uniquement via son code secret ou lien direct.
             </p>
 
-            <button id="btnGenerateInstantRoom" class="btn btn-primary" style="width: 100%; margin-bottom: 1rem; padding: 0.85rem;">
+            <button id="btnGenerateInstantRoom" class="btn btn-primary" style="width: 100%; margin-bottom: 1rem; padding: 0.8rem;">
                 ⚡ Générer un salon aléatoire
             </button>
 
@@ -228,7 +264,7 @@ $isPublicRoom = ($room['code'] === 'public');
         <div class="modal-content">
             <button id="joinRoomModalClose" class="modal-close">&times;</button>
             <h2 style="font-size: 1.25rem; margin-bottom: 0.5rem; color: #fff;">Rejoindre un Salon</h2>
-            <p style="color: var(--text-secondary); font-size: 0.88rem; margin-bottom: 1.5rem;">
+            <p style="color: var(--text-secondary); font-size: 0.88rem; margin-bottom: 1.25rem;">
                 Entrez le code du salon privé qui vous a été partagé.
             </p>
 

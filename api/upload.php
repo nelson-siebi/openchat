@@ -47,6 +47,8 @@ if (in_array($extension, $blockedExtensions, true)) {
 }
 
 $isImage = in_array($extension, ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'avif'], true);
+$isAudio = in_array($extension, ['webm', 'wav', 'mp3', 'ogg', 'm4a', 'aac', 'opus'], true);
+$type = $isImage ? 'image' : ($isAudio ? 'audio' : 'file');
 
 // 1. Try uploading to Backblaze B2 (Zero VPS Disk Space)
 if (B2Storage::isConfigured()) {
@@ -75,5 +77,5 @@ Config::jsonResponse([
     'file_url' => $fileUrl,
     'file_name' => $originalName,
     'file_size' => (int)$file['size'],
-    'type' => $isImage ? 'image' : 'file'
+    'type' => $type
 ]);

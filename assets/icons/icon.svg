@@ -31,3 +31,4 @@
   <!-- Secondary subtle bubble -->
   <path d="M300 270 C340 270, 385 285, 385 325 C385 348, 370 366, 345 376 L355 405 L318 390 C306 394, 292 396, 278 396 C240 396, 210 380, 210 350" fill="none" stroke="#ffffff" stroke-width="16" stroke-linecap="round" stroke-linejoin="round" opacity="0.8" />
 </svg>
+
