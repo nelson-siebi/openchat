@@ -1,0 +1,17 @@
+# OpenChat Git Ignore
+/data/*.sqlite
+/data/*.db
+/uploads/*
+!/uploads/.gitkeep
+!/data/.gitkeep
+
+# OS & Editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+.env
+
+# Future Node.js build / deps
+node_modules/
+npm-debug.log*
