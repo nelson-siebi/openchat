@@ -46,7 +46,7 @@ class Database
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 room_code TEXT NOT NULL,
                 sender TEXT NOT NULL,
-                type TEXT NOT NULL DEFAULT 'text', -- 'text', 'file', 'image', 'video', 'audio', 'link', 'peer_joined'
+                type TEXT NOT NULL DEFAULT 'text', -- 'text', 'file', 'image', 'video', 'audio', 'link', 'sticker', 'peer_joined', 'system'
                 content TEXT NOT NULL,
                 file_url TEXT NULL,
                 file_name TEXT NULL,
@@ -58,8 +58,19 @@ class Database
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             );
 
+            CREATE TABLE IF NOT EXISTS room_presence (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                room_code TEXT NOT NULL,
+                username TEXT NOT NULL,
+                avatar_color TEXT NOT NULL DEFAULT '#10b981',
+                last_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
+                joined_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(room_code, username)
+            );
+
             CREATE INDEX IF NOT EXISTS idx_messages_room_id ON messages (room_code, id);
             CREATE INDEX IF NOT EXISTS idx_rooms_code ON rooms (code);
+            CREATE INDEX IF NOT EXISTS idx_presence_room ON room_presence (room_code, last_seen);
         ";
 
         self::$pdo->exec($sql);
@@ -227,6 +238,107 @@ class Database
         $stmt->execute();
 
         return $stmt->fetchAll();
+    }
+
+    public static function updatePresence(string $roomCode, string $username, string $avatarColor = '#10b981'): array
+    {
+        $roomCode = self::sanitizeCode($roomCode);
+        $username = trim(strip_tags($username));
+        if (empty($username)) $username = 'Invité';
+        $db = self::getConnection();
+
+        // Check if user was already active in the last 60 seconds
+        $check = $db->prepare("SELECT last_seen FROM room_presence WHERE room_code = :room AND username = :user LIMIT 1");
+        $check->execute([':room' => $roomCode, ':user' => $username]);
+        $existing = $check->fetch();
+
+        $isNewJoin = false;
+        if (!$existing) {
+            $isNewJoin = true;
+        } else {
+            $lastSeenSecs = time() - strtotime($existing['last_seen']);
+            if ($lastSeenSecs > 120) {
+                $isNewJoin = true;
+            }
+        }
+
+        // Upsert presence
+        $stmt = $db->prepare("
+            INSERT INTO room_presence (room_code, username, avatar_color, last_seen, joined_at)
+            VALUES (:room, :user, :color, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            ON CONFLICT(room_code, username) DO UPDATE SET
+                avatar_color = excluded.avatar_color,
+                last_seen = CURRENT_TIMESTAMP
+        ");
+        $stmt->execute([':room' => $roomCode, ':user' => $username, ':color' => $avatarColor]);
+
+        // If new join, create system announcement message
+        if ($isNewJoin && $roomCode !== 'public') {
+            self::addMessage(
+                roomCode: $roomCode,
+                sender: 'Système',
+                content: "👋 {$username} a rejoint le salon.",
+                type: 'system'
+            );
+        }
+
+        return self::getRoomPresence($roomCode);
+    }
+
+    public static function leavePresence(string $roomCode, string $username): void
+    {
+        $roomCode = self::sanitizeCode($roomCode);
+        $username = trim(strip_tags($username));
+        $db = self::getConnection();
+
+        $stmt = $db->prepare("DELETE FROM room_presence WHERE room_code = :room AND username = :user");
+        $stmt->execute([':room' => $roomCode, ':user' => $username]);
+
+        if ($roomCode !== 'public') {
+            self::addMessage(
+                roomCode: $roomCode,
+                sender: 'Système',
+                content: "🚪 {$username} a quitté le salon.",
+                type: 'system'
+            );
+        }
+    }
+
+    public static function getRoomPresence(string $roomCode): array
+    {
+        $roomCode = self::sanitizeCode($roomCode);
+        $db = self::getConnection();
+
+        // Active members in the last 60 seconds
+        $stmt = $db->prepare("
+            SELECT username, avatar_color, last_seen, joined_at,
+                   CAST((strftime('%s', 'now') - strftime('%s', last_seen)) AS INTEGER) AS seconds_ago
+            FROM room_presence
+            WHERE room_code = :room AND last_seen >= datetime('now', '-300 seconds')
+            ORDER BY last_seen DESC
+        ");
+        $stmt->execute([':room' => $roomCode]);
+        $rows = $stmt->fetchAll();
+
+        $members = [];
+        $onlineCount = 0;
+        foreach ($rows as $row) {
+            $isOnline = (int)$row['seconds_ago'] <= 45;
+            if ($isOnline) $onlineCount++;
+            $members[] = [
+                'username' => $row['username'],
+                'avatar_color' => $row['avatar_color'],
+                'is_online' => $isOnline,
+                'seconds_ago' => (int)$row['seconds_ago'],
+                'joined_at' => $row['joined_at']
+            ];
+        }
+
+        return [
+            'online_count' => max(1, $onlineCount),
+            'total_active' => count($members),
+            'members' => $members
+        ];
     }
 
     public static function purgeOldData(): void

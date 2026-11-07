@@ -19,11 +19,23 @@ class OpenChatApp {
         this.pendingReply = null;
         this.pendingFile = null;
 
-        // Voice recording state
+        // User Preferences & Customization
+        this.userAvatarColor = localStorage.getItem('openchat_avatar_color') || '#10b981';
+        this.chatTheme = localStorage.getItem('openchat_chat_theme') || 'default';
+        this.bubbleColor = localStorage.getItem('openchat_bubble_color') || '#059669';
+
+        // Presence & Multi-user state
+        this.presenceTimer = null;
+        this.onlineMembers = [];
+
+        // Voice recording & live sinusoid state
         this.mediaRecorder = null;
         this.audioChunks = [];
         this.recordStartTime = 0;
         this.recordTimerInterval = null;
+        this.audioContext = null;
+        this.analyser = null;
+        this.waveAnimFrame = null;
 
         // QR Pairing state
         this.currentPairToken = null;
@@ -54,9 +66,11 @@ class OpenChatApp {
 
     init() {
         this.saveCurrentRoomToRecent();
+        this.applyCustomPreferences();
         this.setupPWA();
         this.setupNotifications();
         this.setupSidebar();
+        this.setupHeaderActions();
         this.setupUI();
         this.setupModals();
         this.setupContextMenu();
@@ -66,6 +80,7 @@ class OpenChatApp {
         this.setupSmartScroll();
         this.setupDelegatedEvents();
         this.setupLiveSync();
+        this.setupPresence();
         this.fetchInitialMessages();
         this.renderRecentRoomsList();
         this.checkInitialPairing();
@@ -398,19 +413,259 @@ class OpenChatApp {
     }
 
     // ==========================================
-    // EMOJI & ANIMATED STICKERS PICKER (WHATSAPP STYLE)
+    // USER PREFERENCES & THEMES
+    // ==========================================
+    applyCustomPreferences() {
+        // Apply wallpaper theme to messages container
+        const chatContainer = document.getElementById('chatMessages');
+        if (chatContainer) {
+            chatContainer.classList.remove('theme-doodle', 'theme-aurora', 'theme-midnight', 'theme-oled');
+            if (this.chatTheme && this.chatTheme !== 'default') {
+                chatContainer.classList.add(`theme-${this.chatTheme}`);
+            }
+        }
+
+        // Apply bubble color
+        document.documentElement.style.setProperty('--bubble-mine', this.bubbleColor);
+
+        // Update nickname preview in header
+        const shortName = document.getElementById('headerUsernameShort');
+        if (shortName) {
+            shortName.textContent = this.username;
+        }
+
+        const avatarPreview = document.getElementById('settingsAvatarPreview');
+        if (avatarPreview) {
+            avatarPreview.textContent = (this.username || 'I').charAt(0).toUpperCase();
+            avatarPreview.style.background = this.userAvatarColor;
+        }
+    }
+
+    setupHeaderActions() {
+        const btnMore = document.getElementById('btnHeaderMore');
+        const dropdown = document.getElementById('headerMoreDropdown');
+
+        if (btnMore && dropdown) {
+            btnMore.addEventListener('click', (e) => {
+                e.stopPropagation();
+                dropdown.style.display = dropdown.style.display === 'flex' ? 'none' : 'flex';
+            });
+
+            document.addEventListener('click', (e) => {
+                if (!dropdown.contains(e.target) && e.target !== btnMore) {
+                    dropdown.style.display = 'none';
+                }
+            });
+        }
+
+        // Header More Dropdown Items
+        const miQr = document.getElementById('menuItemQr');
+        const miShare = document.getElementById('menuItemShare');
+        const miMembers = document.getElementById('menuItemMembers');
+        const miSound = document.getElementById('menuItemToggleSound');
+        const miPwa = document.getElementById('menuItemPwa');
+        const miLeave = document.getElementById('menuItemLeave');
+
+        if (miQr) {
+            miQr.addEventListener('click', () => {
+                if (dropdown) dropdown.style.display = 'none';
+                const qrModal = document.getElementById('qrModal');
+                if (qrModal) {
+                    qrModal.style.display = 'flex';
+                    this.renderQRCode();
+                }
+            });
+        }
+
+        if (miShare) {
+            miShare.addEventListener('click', () => {
+                if (dropdown) dropdown.style.display = 'none';
+                this.copyText(window.location.href);
+            });
+        }
+
+        if (miMembers) {
+            miMembers.addEventListener('click', () => {
+                if (dropdown) dropdown.style.display = 'none';
+                const mModal = document.getElementById('membersModal');
+                if (mModal) {
+                    mModal.style.display = 'flex';
+                    this.renderMembersModal();
+                }
+            });
+        }
+
+        if (miSound) {
+            miSound.addEventListener('click', () => {
+                this.soundEnabled = !this.soundEnabled;
+                localStorage.setItem('openchat_sound', this.soundEnabled ? 'true' : 'false');
+                const sIcon = document.getElementById('menuSoundIcon');
+                if (sIcon) sIcon.textContent = this.soundEnabled ? '🔔' : '🔕';
+                this.showToast(this.soundEnabled ? 'Notifications sonores activées 🔔' : 'Notifications sonores coupées 🔕');
+                if (dropdown) dropdown.style.display = 'none';
+            });
+        }
+
+        if (miPwa && this.deferredInstallPrompt) {
+            miPwa.style.display = 'flex';
+            miPwa.addEventListener('click', async () => {
+                if (dropdown) dropdown.style.display = 'none';
+                if (this.deferredInstallPrompt) {
+                    this.deferredInstallPrompt.prompt();
+                    this.deferredInstallPrompt = null;
+                }
+            });
+        }
+
+        if (miLeave) {
+            miLeave.addEventListener('click', () => {
+                if (dropdown) dropdown.style.display = 'none';
+                this.leaveRoom();
+            });
+        }
+
+        // Open Members from Header Pill
+        const btnMembers = document.getElementById('btnOpenMembersModal');
+        if (btnMembers) {
+            btnMembers.addEventListener('click', () => {
+                const mModal = document.getElementById('membersModal');
+                if (mModal) {
+                    mModal.style.display = 'flex';
+                    this.renderMembersModal();
+                }
+            });
+        }
+
+        // Members modal close & actions
+        const mClose = document.getElementById('membersModalClose');
+        const mModal = document.getElementById('membersModal');
+        if (mClose && mModal) {
+            mClose.addEventListener('click', () => mModal.style.display = 'none');
+            mModal.addEventListener('click', (e) => {
+                if (e.target === mModal) mModal.style.display = 'none';
+            });
+        }
+
+        const btnLeave = document.getElementById('btnLeaveRoom');
+        if (btnLeave) {
+            btnLeave.addEventListener('click', () => this.leaveRoom());
+        }
+
+        const btnInvite = document.getElementById('btnInviteMember');
+        if (btnInvite) {
+            btnInvite.addEventListener('click', () => {
+                this.copyText(window.location.href);
+            });
+        }
+    }
+
+    // ==========================================
+    // PRESENCE & ROOM MEMBERS
+    // ==========================================
+    setupPresence() {
+        this.pingPresence();
+        if (this.presenceTimer) clearInterval(this.presenceTimer);
+        this.presenceTimer = setInterval(() => {
+            this.pingPresence();
+        }, 18000);
+    }
+
+    async pingPresence() {
+        try {
+            const res = await fetch('api/presence.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'ping',
+                    room_code: this.roomCode,
+                    username: this.username,
+                    color: this.userAvatarColor
+                })
+            });
+            const data = await res.json();
+            if (data.success) {
+                this.onlineMembers = data.members || [];
+                const onlineCount = data.online_count || 1;
+                const countBadge = document.getElementById('headerOnlineCount');
+                const menuCount = document.getElementById('menuOnlineCount');
+                if (countBadge) countBadge.textContent = `${onlineCount} en ligne`;
+                if (menuCount) menuCount.textContent = `${onlineCount}`;
+            }
+        } catch (e) {}
+    }
+
+    renderMembersModal() {
+        const container = document.getElementById('membersListContainer');
+        if (!container) return;
+
+        if (!this.onlineMembers || this.onlineMembers.length === 0) {
+            container.innerHTML = `<div style="text-align: center; color: var(--text-muted); padding: 1.5rem;">Seul dans ce salon pour le moment.</div>`;
+            return;
+        }
+
+        container.innerHTML = this.onlineMembers.map(m => {
+            const initial = (m.username || 'I').charAt(0).toUpperCase();
+            const color = m.avatar_color || '#10b981';
+            const isMe = m.username === this.username;
+            let statusText = 'En ligne';
+            let dotClass = 'status-dot-online';
+
+            if (!m.is_online) {
+                dotClass = 'status-dot-offline';
+                const mins = Math.max(1, Math.floor((m.seconds_ago || 60) / 60));
+                statusText = `Vu il y a ${mins} min`;
+            }
+
+            return `
+                <div class="member-item">
+                    <div class="member-avatar" style="background: ${color};">
+                        ${initial}
+                    </div>
+                    <div class="member-info">
+                        <div class="member-name">
+                            ${this.escapeHtml(m.username)} ${isMe ? '<span style="opacity: 0.6; font-size: 0.75rem;">(Vous)</span>' : ''}
+                        </div>
+                        <div class="member-status">
+                            <span class="${dotClass}"></span>
+                            <span>${statusText}</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    async leaveRoom() {
+        try {
+            await fetch('api/presence.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'leave',
+                    room_code: this.roomCode,
+                    username: this.username
+                })
+            });
+        } catch (e) {}
+
+        this.showToast('Vous avez quitté le salon.');
+        setTimeout(() => {
+            window.location.href = 'index.php?code=public';
+        }, 400);
+    }
+
+    // ==========================================
+    // EMOJI & ANIMATED STICKERS PICKER (CATEGORIZED)
     // ==========================================
     setupEmojiPicker() {
         const btnEmoji = document.getElementById('btnToggleEmoji');
         const popover = document.getElementById('emojiPopover');
         if (!btnEmoji || !popover) return;
 
-        const emojis = [
-            '😀', '😂', '🤣', '😊', '😍', '🥰', '😘', '😜', '😎', '🥳', '🤔', '🤫',
-            '👍', '👎', '👏', '🙌', '🤝', '✌️', '🤞', '👊', '👌', '❤️', '🧡', '💛',
-            '💚', '💙', '💜', '🖤', '💔', '🔥', '✨', '💥', '💯', '🚀', '🎉', '🎁',
-            '👀', '👋', '🌟', '⚡', '☕', '💡', '📌', '🔒', '📱', '💻', '✉️', '📎'
-        ];
+        const smileys = ['😀', '😃', '😄', '😁', '😆', '😅', '🤣', '😂', '🙂', '🙃', '😉', '😊', '😇', '🥰', '😍', '🤩', '😘', '😋', '😜', '🤪', '😎', '🥳', '😏', '🥺', '😢', '😭', '😤', '😡', '🤯', '😱', '🤔', '🤫', '🥱', '😴', '🤤', '😵', '🤐', '🤢', '🤧', '😷', '🤒', '🤕'];
+        const gestures = ['👍', '👎', '👊', '✊', '🤛', '🤜', '🤞', '✌️', '🤟', '🤘', '👌', '🤌', '🤏', '👈', '👉', '👆', '👇', '☝️', '✋', '🤚', '🖐️', '🖖', '👋', '🤙', '💪', '🙏', '🤝', '👏', '🙌', '👐'];
+        const hearts = ['❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍', '🤎', '💔', '❣️', '💕', '💞', '💓', '💗', '💖', '💘', '💝', '💟', '💌', '💋', '💐', '🌹', '🥀', '🌺', '🌸'];
+        const objects = ['🔥', '✨', '💥', '💯', '🚀', '🎉', '🎊', '🎁', '🏆', '⭐', '🌟', '⚡', '☕', '💡', '📌', '📍', '🔒', '🔓', '🔑', '🛡️', '📱', '💻', '🖥️', '📷', '✉️', '📎', '📁', '🎯', '🔔', '💬'];
 
         const animatedStickers = [
             { name: 'Cœur Battant', file: 'assets/stickers/heart_beat.svg' },
@@ -423,18 +678,30 @@ class OpenChatApp {
 
         popover.innerHTML = `
             <div class="emoji-popover-tabs">
-                <button type="button" class="emoji-tab-btn active" data-tab="stickers">✨ Stickers Animés</button>
-                <button type="button" class="emoji-tab-btn" data-tab="emojis">😀 Emojis</button>
+                <button type="button" class="emoji-tab-btn active" data-tab="stickers">✨ Stickers</button>
+                <button type="button" class="emoji-tab-btn" data-tab="smileys">😀 Smileys</button>
+                <button type="button" class="emoji-tab-btn" data-tab="gestures">👍 Gestes</button>
+                <button type="button" class="emoji-tab-btn" data-tab="hearts">❤️ Cœurs</button>
+                <button type="button" class="emoji-tab-btn" data-tab="objects">🔥 Objets</button>
             </div>
-            <div id="tabContentStickers" class="stickers-grid">
+            <div id="tabContent_stickers" class="stickers-grid emoji-tab-panel">
                 ${animatedStickers.map(st => `
                     <button type="button" class="sticker-item-btn" data-sticker-url="${st.file}" title="${st.name}">
                         <img src="${st.file}" class="sticker-item-img" alt="${st.name}" />
                     </button>
                 `).join('')}
             </div>
-            <div id="tabContentEmojis" class="emoji-grid" style="display: none;">
-                ${emojis.map(em => `<button type="button" class="emoji-btn">${em}</button>`).join('')}
+            <div id="tabContent_smileys" class="emoji-grid emoji-tab-panel" style="display: none;">
+                ${smileys.map(em => `<button type="button" class="emoji-btn">${em}</button>`).join('')}
+            </div>
+            <div id="tabContent_gestures" class="emoji-grid emoji-tab-panel" style="display: none;">
+                ${gestures.map(em => `<button type="button" class="emoji-btn">${em}</button>`).join('')}
+            </div>
+            <div id="tabContent_hearts" class="emoji-grid emoji-tab-panel" style="display: none;">
+                ${hearts.map(em => `<button type="button" class="emoji-btn">${em}</button>`).join('')}
+            </div>
+            <div id="tabContent_objects" class="emoji-grid emoji-tab-panel" style="display: none;">
+                ${objects.map(em => `<button type="button" class="emoji-btn">${em}</button>`).join('')}
             </div>
         `;
 
@@ -446,23 +713,23 @@ class OpenChatApp {
                 btn.classList.add('active');
 
                 const targetTab = btn.dataset.tab;
-                const tabStickers = document.getElementById('tabContentStickers');
-                const tabEmojis = document.getElementById('tabContentEmojis');
+                popover.querySelectorAll('.emoji-tab-panel').forEach(panel => {
+                    panel.style.display = 'none';
+                });
 
-                if (targetTab === 'stickers') {
-                    tabStickers.style.display = 'grid';
-                    tabEmojis.style.display = 'none';
-                } else {
-                    tabStickers.style.display = 'none';
-                    tabEmojis.style.display = 'grid';
+                const activePanel = document.getElementById(`tabContent_${targetTab}`);
+                if (activePanel) {
+                    activePanel.style.display = targetTab === 'stickers' ? 'grid' : 'grid';
                 }
             });
         });
 
-        // Click on animated sticker: sends immediately like WhatsApp
-        popover.addEventListener('click', (e) => {
+        // Click or tap on sticker / emoji
+        const handleEmojiClick = (e) => {
             const stickerBtn = e.target.closest('.sticker-item-btn');
             if (stickerBtn) {
+                e.preventDefault();
+                e.stopPropagation();
                 const url = stickerBtn.dataset.stickerUrl;
                 this.sendSticker(url);
                 popover.style.display = 'none';
@@ -470,6 +737,8 @@ class OpenChatApp {
             }
 
             if (e.target.classList.contains('emoji-btn')) {
+                e.preventDefault();
+                e.stopPropagation();
                 const em = e.target.textContent;
                 const msgInput = document.getElementById('messageInput');
                 if (msgInput) {
@@ -480,7 +749,10 @@ class OpenChatApp {
                     msgInput.selectionStart = msgInput.selectionEnd = start + em.length;
                 }
             }
-        });
+        };
+
+        popover.addEventListener('click', handleEmojiClick);
+        popover.addEventListener('touchend', handleEmojiClick);
 
         btnEmoji.addEventListener('click', (e) => {
             e.stopPropagation();
@@ -502,7 +774,7 @@ class OpenChatApp {
                 body: JSON.stringify({
                     room_code: this.roomCode,
                     sender: this.username,
-                    content: 'Sticker',
+                    content: stickerUrl,
                     type: 'sticker',
                     file_url: stickerUrl
                 })
@@ -517,6 +789,105 @@ class OpenChatApp {
     }
 
     setupModals() {
+        // Settings Modal (Fond d'écran, Bulles, Pseudo)
+        const btnOpenSettings = document.getElementById('btnOpenSettings');
+        const settingsModal = document.getElementById('settingsModal');
+        const settingsClose = document.getElementById('settingsModalClose');
+        const settingsUsername = document.getElementById('settingsUsernameInput');
+        const btnSaveSettings = document.getElementById('btnSaveSettings');
+
+        if (btnOpenSettings && settingsModal) {
+            btnOpenSettings.addEventListener('click', () => {
+                if (settingsUsername) settingsUsername.value = this.username;
+                const avPreview = document.getElementById('settingsAvatarPreview');
+                if (avPreview) {
+                    avPreview.textContent = (this.username || 'I').charAt(0).toUpperCase();
+                    avPreview.style.background = this.userAvatarColor;
+                }
+                settingsModal.style.display = 'flex';
+            });
+
+            if (settingsClose) settingsClose.addEventListener('click', () => settingsModal.style.display = 'none');
+            settingsModal.addEventListener('click', (e) => {
+                if (e.target === settingsModal) settingsModal.style.display = 'none';
+            });
+
+            // Live pseudo input change preview
+            if (settingsUsername) {
+                settingsUsername.addEventListener('input', () => {
+                    const val = settingsUsername.value.trim();
+                    const avPreview = document.getElementById('settingsAvatarPreview');
+                    if (avPreview) avPreview.textContent = (val || 'I').charAt(0).toUpperCase();
+                });
+            }
+
+            // Avatar Color Dots
+            const colorPicker = document.getElementById('avatarColorPicker');
+            if (colorPicker) {
+                colorPicker.querySelectorAll('.color-dot').forEach(dot => {
+                    if (dot.dataset.color === this.userAvatarColor) dot.classList.add('active');
+                    else dot.classList.remove('active');
+
+                    dot.addEventListener('click', () => {
+                        colorPicker.querySelectorAll('.color-dot').forEach(d => d.classList.remove('active'));
+                        dot.classList.add('active');
+                        this.userAvatarColor = dot.dataset.color;
+                        const avPreview = document.getElementById('settingsAvatarPreview');
+                        if (avPreview) avPreview.style.background = this.userAvatarColor;
+                    });
+                });
+            }
+
+            // Wallpaper Options
+            const wpPicker = document.getElementById('wallpaperPicker');
+            if (wpPicker) {
+                wpPicker.querySelectorAll('.wallpaper-option').forEach(opt => {
+                    if (opt.dataset.wp === this.chatTheme) opt.classList.add('active');
+                    else opt.classList.remove('active');
+
+                    opt.addEventListener('click', () => {
+                        wpPicker.querySelectorAll('.wallpaper-option').forEach(o => o.classList.remove('active'));
+                        opt.classList.add('active');
+                        this.chatTheme = opt.dataset.wp;
+                    });
+                });
+            }
+
+            // Bubble Colors
+            const bubblePicker = document.getElementById('bubbleColorPicker');
+            if (bubblePicker) {
+                bubblePicker.querySelectorAll('.bubble-color-btn').forEach(btn => {
+                    if (btn.dataset.bubbleColor === this.bubbleColor) btn.classList.add('active');
+                    else btn.classList.remove('active');
+
+                    btn.addEventListener('click', () => {
+                        bubblePicker.querySelectorAll('.bubble-color-btn').forEach(b => b.classList.remove('active'));
+                        btn.classList.add('active');
+                        this.bubbleColor = btn.dataset.bubbleColor;
+                    });
+                });
+            }
+
+            // Save Settings Button
+            if (btnSaveSettings) {
+                btnSaveSettings.addEventListener('click', () => {
+                    const newName = settingsUsername ? settingsUsername.value.trim() : '';
+                    if (newName) {
+                        this.username = newName;
+                        localStorage.setItem('openchat_username', newName);
+                    }
+                    localStorage.setItem('openchat_avatar_color', this.userAvatarColor);
+                    localStorage.setItem('openchat_chat_theme', this.chatTheme);
+                    localStorage.setItem('openchat_bubble_color', this.bubbleColor);
+
+                    this.applyCustomPreferences();
+                    this.pingPresence();
+                    settingsModal.style.display = 'none';
+                    this.showToast('Préférences enregistrées avec succès !');
+                });
+            }
+        }
+
         // Create Private Room
         const btnOpenCreate = document.getElementById('btnOpenCreateModal');
         const createModal = document.getElementById('createRoomModal');
@@ -618,7 +989,7 @@ class OpenChatApp {
     }
 
     // ==========================================
-    // VOICE RECORDING (MESSAGES VOCAUX)
+    // VOICE RECORDING (MESSAGES VOCAUX & SINUSOÏDE LIVE)
     // ==========================================
     setupVoiceRecording() {
         const btnStart = document.getElementById('btnStartVoice');
@@ -655,6 +1026,16 @@ class OpenChatApp {
                 };
 
                 this.mediaRecorder.start(200);
+
+                // Start Web Audio live sinusoid analyser
+                try {
+                    this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    this.analyser = this.audioContext.createAnalyser();
+                    this.analyser.fftSize = 128;
+                    const source = this.audioContext.createMediaStreamSource(stream);
+                    source.connect(this.analyser);
+                    this.startLiveSinusoidWaveform();
+                } catch (err) {}
 
                 normalBar.style.display = 'none';
                 recordBar.style.display = 'flex';
@@ -698,7 +1079,55 @@ class OpenChatApp {
         }
     }
 
+    startLiveSinusoidWaveform() {
+        const canvas = document.getElementById('voiceWaveCanvas');
+        if (!canvas || !this.analyser) return;
+        const ctx = canvas.getContext('2d');
+        const bufferLength = this.analyser.frequencyBinCount;
+        const dataArray = new Uint8Array(bufferLength);
+
+        const draw = () => {
+            this.waveAnimFrame = requestAnimationFrame(draw);
+            this.analyser.getByteTimeDomainData(dataArray);
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.lineWidth = 2.5;
+            ctx.strokeStyle = '#10b981';
+            ctx.beginPath();
+
+            const sliceWidth = canvas.width / bufferLength;
+            let x = 0;
+
+            for (let i = 0; i < bufferLength; i++) {
+                const v = dataArray[i] / 128.0;
+                const y = (v * canvas.height) / 2;
+
+                if (i === 0) {
+                    ctx.moveTo(x, y);
+                } else {
+                    ctx.lineTo(x, y);
+                }
+                x += sliceWidth;
+            }
+
+            ctx.lineTo(canvas.width, canvas.height / 2);
+            ctx.stroke();
+        };
+
+        draw();
+    }
+
     stopVoiceRecording() {
+        if (this.waveAnimFrame) {
+            cancelAnimationFrame(this.waveAnimFrame);
+            this.waveAnimFrame = null;
+        }
+
+        if (this.audioContext) {
+            try { this.audioContext.close(); } catch (e) {}
+            this.audioContext = null;
+        }
+
         if (this.recordTimerInterval) {
             clearInterval(this.recordTimerInterval);
             this.recordTimerInterval = null;
@@ -1161,49 +1590,90 @@ class OpenChatApp {
         }
     }
 
-    async uploadAndSendFile(file, customName = null, forceType = null, captionText = '') {
-        this.showToast(`Téléversement vers Backblaze B2...`);
+    uploadAndSendFile(file, customName = null, forceType = null, captionText = '') {
+        const pContainer = document.getElementById('uploadProgressBarContainer');
+        const pText = document.getElementById('uploadProgressFileName');
+        const pPercent = document.getElementById('uploadProgressPercent');
+        const pFill = document.getElementById('uploadProgressFill');
+
+        if (pContainer) {
+            pContainer.style.display = 'flex';
+            if (pText) pText.textContent = `Envoi vers B2 : ${file.name || customName || 'Fichier'}`;
+            if (pPercent) pPercent.textContent = '0%';
+            if (pFill) pFill.style.width = '0%';
+        }
 
         const formData = new FormData();
         formData.append('file', file, customName || file.name);
 
-        try {
-            const res = await fetch('api/upload.php', {
-                method: 'POST',
-                body: formData
-            });
+        return new Promise((resolve) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', 'api/upload.php', true);
 
-            const data = await res.json();
-            if (data.success) {
-                const payload = {
-                    room_code: this.roomCode,
-                    sender: this.username,
-                    content: captionText || data.file_name,
-                    type: forceType || data.type,
-                    file_url: data.file_url,
-                    file_name: data.file_name,
-                    file_size: data.file_size
-                };
-
-                if (this.pendingReply) {
-                    payload.reply_to_id = this.pendingReply.id;
-                    payload.reply_to_sender = this.pendingReply.sender;
-                    payload.reply_to_content = this.pendingReply.content;
-                    this.clearActiveContext();
+            xhr.upload.onprogress = (e) => {
+                if (e.lengthComputable && pPercent && pFill) {
+                    const percent = Math.round((e.loaded / e.total) * 100);
+                    pPercent.textContent = `${percent}%`;
+                    pFill.style.width = `${percent}%`;
                 }
+            };
 
-                await fetch('api/messages.php', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
-                this.showToast('Élément envoyé !');
-            } else {
-                alert(data.error || 'Erreur lors du téléversement.');
-            }
-        } catch (e) {
-            this.showToast('Erreur lors de l\'envoi.');
-        }
+            xhr.onload = async () => {
+                if (pContainer) pContainer.style.display = 'none';
+
+                if (xhr.status >= 200 && xhr.status < 300) {
+                    try {
+                        const data = JSON.parse(xhr.responseText);
+                        if (data.success) {
+                            const payload = {
+                                room_code: this.roomCode,
+                                sender: this.username,
+                                content: captionText || data.file_name,
+                                type: forceType || data.type,
+                                file_url: data.file_url,
+                                file_name: data.file_name,
+                                file_size: data.file_size
+                            };
+
+                            if (this.pendingReply) {
+                                payload.reply_to_id = this.pendingReply.id;
+                                payload.reply_to_sender = this.pendingReply.sender;
+                                payload.reply_to_content = this.pendingReply.content;
+                                this.clearActiveContext();
+                            }
+
+                            const mRes = await fetch('api/messages.php', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify(payload)
+                            });
+                            const mData = await mRes.json();
+                            if (mData.success && mData.message) {
+                                this.appendMessage(mData.message);
+                            }
+                            this.showToast('Élément envoyé avec succès !');
+                            resolve(true);
+                            return;
+                        } else {
+                            alert(data.error || 'Erreur lors du téléversement.');
+                        }
+                    } catch (err) {
+                        this.showToast('Erreur serveur lors du téléversement.');
+                    }
+                } else {
+                    this.showToast('Erreur de transmission réseau.');
+                }
+                resolve(false);
+            };
+
+            xhr.onerror = () => {
+                if (pContainer) pContainer.style.display = 'none';
+                this.showToast('Échec de la connexion lors de l\'envoi.');
+                resolve(false);
+            };
+
+            xhr.send(formData);
+        });
     }
 
     async reactToMessage(messageId, emoji) {
@@ -1349,16 +1819,36 @@ class OpenChatApp {
             return;
         }
 
+        // SYSTEM ANNOUNCEMENT MESSAGE (JOIN / LEAVE)
+        if (msg.type === 'system') {
+            const container = document.getElementById('chatMessages');
+            if (container) {
+                const sysRow = document.createElement('div');
+                sysRow.className = 'message-row system';
+                sysRow.innerHTML = `<div class="message-bubble">${this.escapeHtml(msg.content)}</div>`;
+                container.appendChild(sysRow);
+                this.scrollToBottom();
+            }
+            return;
+        }
+
         const container = document.getElementById('chatMessages');
         if (!container) return;
 
         const isMine = msg.sender === this.username;
+        const isSticker = msg.type === 'sticker' || 
+                          (msg.file_url && msg.file_url.includes('/stickers/')) || 
+                          (msg.content && msg.content.includes('/stickers/'));
+        const stickerUrl = (msg.file_url && msg.file_url.includes('/stickers/')) 
+            ? msg.file_url 
+            : (msg.content && msg.content.includes('/stickers/') ? msg.content : (msg.file_url || null));
+
         const row = document.createElement('div');
-        const isSticker = msg.type === 'sticker';
         row.className = `message-row ${isMine ? 'mine' : 'theirs'} ${isSticker ? 'sticker' : ''}`;
         row.setAttribute('data-msg-id', msg.id);
 
         const timeStr = this.formatTime(msg.created_at);
+        const ticksHtml = isMine ? `<span class="msg-ticks read" title="Distribué & Vu">✓✓</span>` : '';
 
         // Reply quote block
         let replyHtml = '';
@@ -1372,10 +1862,10 @@ class OpenChatApp {
         }
 
         let contentHtml = '';
-        if (isSticker && msg.file_url) {
+        if (isSticker && stickerUrl) {
             // Floating WhatsApp-style animated sticker
             contentHtml = `
-                <img src="${this.escapeHtml(msg.file_url)}" class="sticker-img" alt="Sticker" loading="lazy" />
+                <img src="${this.escapeHtml(stickerUrl)}" class="sticker-img" alt="Sticker" loading="lazy" />
             `;
         } else if (msg.type === 'image' && msg.file_url) {
             const hasCaption = msg.content && msg.content !== msg.file_name;
@@ -1388,16 +1878,19 @@ class OpenChatApp {
         } else if (msg.type === 'video' && msg.file_url) {
             const hasCaption = msg.content && msg.content !== msg.file_name;
             contentHtml = `
-                <video src="${this.escapeHtml(msg.file_url)}" controls class="message-video" preload="metadata"></video>
+                <div class="video-card-container">
+                    <video src="${this.escapeHtml(msg.file_url)}" controls class="message-video" preload="metadata"></video>
+                </div>
                 ${hasCaption ? `<div class="message-caption">${this.autolink(this.escapeHtml(msg.content))}</div>` : ''}
             `;
         } else if (msg.type === 'audio' && msg.file_url) {
             contentHtml = this.renderAudioPlayer(msg.file_url);
         } else if (msg.type === 'file' && msg.file_url) {
+            const fileIcon = this.getFileIcon(msg.file_name);
             contentHtml = `
                 <div class="file-card">
                     <div class="file-header">
-                        <span class="file-icon">📁</span>
+                        <span class="file-icon">${fileIcon}</span>
                         <div class="file-info">
                             <div class="file-name">${this.escapeHtml(msg.file_name || 'Fichier')}</div>
                             <div class="file-size">${this.formatBytes(msg.file_size)} • B2 Cloud</div>
@@ -1405,7 +1898,7 @@ class OpenChatApp {
                     </div>
                     <div class="file-actions">
                         <a href="${this.escapeHtml(msg.file_url)}" target="_blank" rel="noopener" class="file-btn">
-                            👁️ Ouvrir
+                            👁️ Aperçu
                         </a>
                         <button type="button" class="file-btn file-btn-primary" data-download-url="${this.escapeHtml(msg.file_url)}" data-download-name="${this.escapeHtml(msg.file_name || 'fichier')}">
                             ⬇️ Télécharger
@@ -1427,7 +1920,7 @@ class OpenChatApp {
         row.innerHTML = `
             <div class="message-meta">
                 <strong>${this.escapeHtml(msg.sender)}</strong>
-                <span>${timeStr}</span>
+                <span>${timeStr} ${ticksHtml}</span>
             </div>
             <div class="message-bubble-wrapper">
                 <div class="message-bubble" data-msg-id="${msg.id}">
@@ -1462,6 +1955,19 @@ class OpenChatApp {
             if (this.soundEnabled) this.playNotificationSound();
             this.sendBrowserNotification(msg.sender, msg.content);
         }
+    }
+
+    getFileIcon(fileName) {
+        if (!fileName) return '📁';
+        const ext = fileName.split('.').pop().toLowerCase();
+        if (['pdf'].includes(ext)) return '📕';
+        if (['zip', 'rar', '7z', 'tar', 'gz'].includes(ext)) return '📦';
+        if (['doc', 'docx', 'txt', 'rtf'].includes(ext)) return '📝';
+        if (['xls', 'xlsx', 'csv'].includes(ext)) return '📊';
+        if (['mp3', 'wav', 'ogg', 'm4a', 'flac'].includes(ext)) return '🎵';
+        if (['mp4', 'mov', 'webm', 'mkv', 'avi'].includes(ext)) return '🎬';
+        if (['js', 'ts', 'php', 'py', 'html', 'css', 'json', 'sql'].includes(ext)) return '💻';
+        return '📁';
     }
 
     renderAudioPlayer(audioUrl) {

@@ -102,9 +102,15 @@ $ogImage = Config::getBaseUrl() . '/assets/img/logo.png';
                 <img src="assets/img/logo.svg" alt="OpenChat" class="app-logo-img" onerror="this.src='assets/img/logo.png'">
             </a>
 
-            <div class="room-badge <?= $isPublicRoom ? '' : 'private' ?>" id="currentRoomBadge">
-                <span class="pulse-dot"></span>
-                <span id="roomCodeDisplay"><?= $isPublicRoom ? '🌍 Salon Public' : '🔒 ' . htmlspecialchars($room['code']) ?></span>
+            <div class="room-header-details">
+                <div class="room-badge <?= $isPublicRoom ? '' : 'private' ?>" id="currentRoomBadge">
+                    <span class="pulse-dot"></span>
+                    <span id="roomCodeDisplay"><?= $isPublicRoom ? '🌍 Salon Public' : '🔒 ' . htmlspecialchars($room['code']) ?></span>
+                </div>
+                <button type="button" class="header-members-pill" id="btnOpenMembersModal" title="Voir les membres du salon">
+                    <span class="members-online-dot"></span>
+                    <span id="headerOnlineCount">1 en ligne</span>
+                </button>
             </div>
         </div>
 
@@ -114,21 +120,47 @@ $ogImage = Config::getBaseUrl() . '/assets/img/logo.png';
                 📲 <span class="btn-text-hide">Installer</span>
             </button>
 
-            <button id="userNickname" class="btn btn-outline btn-sm" title="Modifier votre pseudo">
-                👤 Chargement...
+            <!-- Quick Desktop Buttons -->
+            <button id="btnShowQr" class="btn btn-outline btn-sm btn-desktop-only" title="Connecter un autre appareil (QR Code)">
+                📱 <span>Connecter</span>
             </button>
 
-            <button id="btnShowQr" class="btn btn-outline btn-sm" title="Connecter un autre appareil (QR Code)">
-                📱 <span class="btn-text-hide">Connecter</span>
+            <button id="btnCopyShareLink" class="btn btn-outline btn-sm btn-desktop-only" title="Copier le lien direct du salon">
+                🔗 <span>Partager</span>
             </button>
 
-            <button id="btnCopyShareLink" class="btn btn-outline btn-sm" title="Copier le lien direct du salon">
-                🔗 <span class="btn-text-hide">Partager</span>
+            <!-- Settings / Customization Button -->
+            <button id="btnOpenSettings" class="btn btn-outline btn-sm" title="Personnalisation & Paramètres">
+                ⚙️ <span id="headerUsernameShort" class="btn-text-hide">Paramètres</span>
             </button>
 
-            <button id="btnToggleSound" class="btn-icon" title="Activer / Désactiver les notifications sonores">
-                🔔
-            </button>
+            <!-- Dropdown More Menu Button -->
+            <div class="header-more-container">
+                <button id="btnHeaderMore" class="btn-icon" title="Plus d'options">
+                    ⋮
+                </button>
+                <div id="headerMoreDropdown" class="header-more-dropdown" style="display: none;">
+                    <button type="button" class="more-dropdown-item" id="menuItemQr">
+                        <span>📱</span> Connecter un appareil (QR)
+                    </button>
+                    <button type="button" class="more-dropdown-item" id="menuItemShare">
+                        <span>🔗</span> Copier le lien du salon
+                    </button>
+                    <button type="button" class="more-dropdown-item" id="menuItemMembers">
+                        <span>👥</span> Membres du salon (<span id="menuOnlineCount">1</span>)
+                    </button>
+                    <button type="button" class="more-dropdown-item" id="menuItemToggleSound">
+                        <span id="menuSoundIcon">🔔</span> Sons des messages
+                    </button>
+                    <button type="button" class="more-dropdown-item" id="menuItemPwa" style="display: none;">
+                        <span>📲</span> Installer OpenChat PWA
+                    </button>
+                    <div class="dropdown-divider"></div>
+                    <button type="button" class="more-dropdown-item danger" id="menuItemLeave">
+                        <span>🚪</span> Quitter ce salon
+                    </button>
+                </div>
+            </div>
         </div>
     </header>
 
@@ -249,12 +281,25 @@ $ogImage = Config::getBaseUrl() . '/assets/img/logo.png';
                         </button>
                     </div>
 
-                    <!-- Voice Recording Mode Controls -->
-                    <div id="voiceRecordingBar" class="recording-bar">
+                    <!-- Upload Progress Bar (Live backblaze B2 percentage) -->
+                    <div id="uploadProgressBarContainer" class="upload-progress-container" style="display: none;">
+                        <div class="upload-progress-info">
+                            <span id="uploadProgressFileName">Téléversement en cours...</span>
+                            <span id="uploadProgressPercent">0%</span>
+                        </div>
+                        <div class="upload-progress-track">
+                            <div id="uploadProgressFill" class="upload-progress-fill" style="width: 0%;"></div>
+                        </div>
+                    </div>
+
+                    <!-- Voice Recording Mode Controls with live waveform canvas -->
+                    <div id="voiceRecordingBar" class="recording-bar" style="display: none;">
                         <div class="record-indicator">
                             <span class="record-pulse"></span>
-                            <span>Enregistrement</span>
+                            <span class="record-label">Enregistrement</span>
                         </div>
+
+                        <canvas id="voiceWaveCanvas" class="voice-wave-canvas" width="160" height="34"></canvas>
 
                         <span id="voiceRecordTimer" class="record-timer">00:00</span>
 
@@ -265,7 +310,7 @@ $ogImage = Config::getBaseUrl() . '/assets/img/logo.png';
                         </button>
 
                         <button type="button" id="btnSendVoice" class="btn btn-primary btn-sm" title="Envoyer le vocal">
-                            ✔ Envoyer le vocal
+                            ✔ Envoyer
                         </button>
                     </div>
                 </div>
@@ -345,6 +390,105 @@ $ogImage = Config::getBaseUrl() . '/assets/img/logo.png';
                     Rejoindre maintenant ➔
                 </button>
             </form>
+        </div>
+    </div>
+
+    <!-- Modal Paramètres & Personnalisation (Fond, Couleurs, Pseudo) -->
+    <div id="settingsModal" class="modal-overlay">
+        <div class="modal-content" style="max-width: 480px;">
+            <button id="settingsModalClose" class="modal-close">&times;</button>
+            <h2 style="font-size: 1.25rem; margin-bottom: 0.25rem; color: #fff;">⚙️ Personnalisation & Paramètres</h2>
+            <p style="color: var(--text-secondary); font-size: 0.84rem; margin-bottom: 1.2rem;">
+                Personnalisez votre apparence, le fond d'écran du chat et votre profil sans compte.
+            </p>
+
+            <!-- Profil / Pseudo -->
+            <div class="settings-section">
+                <label class="form-label" style="font-weight: 700; color: #a7f3d0;">👤 Mon Pseudo</label>
+                <div style="display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.5rem;">
+                    <div id="settingsAvatarPreview" class="user-avatar-preview">I</div>
+                    <input type="text" id="settingsUsernameInput" class="form-input" placeholder="Ex: Alex-Dev" maxlength="24">
+                </div>
+                <div class="color-picker-row" id="avatarColorPicker">
+                    <span style="font-size: 0.75rem; color: var(--text-muted); align-self: center;">Couleur :</span>
+                    <button type="button" class="color-dot active" data-color="#10b981" style="background: #10b981;"></button>
+                    <button type="button" class="color-dot" data-color="#2563eb" style="background: #2563eb;"></button>
+                    <button type="button" class="color-dot" data-color="#8b5cf6" style="background: #8b5cf6;"></button>
+                    <button type="button" class="color-dot" data-color="#ec4899" style="background: #ec4899;"></button>
+                    <button type="button" class="color-dot" data-color="#f59e0b" style="background: #f59e0b;"></button>
+                    <button type="button" class="color-dot" data-color="#06b6d4" style="background: #06b6d4;"></button>
+                </div>
+            </div>
+
+            <!-- Fond d'écran du chat -->
+            <div class="settings-section">
+                <label class="form-label" style="font-weight: 700; color: #a7f3d0;">🎨 Fond d'écran du chat</label>
+                <div class="wallpaper-grid" id="wallpaperPicker">
+                    <button type="button" class="wallpaper-option active" data-wp="default">
+                        <span class="wp-preview wp-default"></span>
+                        <span class="wp-label">Nelsius Dark</span>
+                    </button>
+                    <button type="button" class="wallpaper-option" data-wp="doodle">
+                        <span class="wp-preview wp-doodle"></span>
+                        <span class="wp-label">Doodle Chat</span>
+                    </button>
+                    <button type="button" class="wallpaper-option" data-wp="aurora">
+                        <span class="wp-preview wp-aurora"></span>
+                        <span class="wp-label">Aurore</span>
+                    </button>
+                    <button type="button" class="wallpaper-option" data-wp="midnight">
+                        <span class="wp-preview wp-midnight"></span>
+                        <span class="wp-label">Bleu Nuit</span>
+                    </button>
+                    <button type="button" class="wallpaper-option" data-wp="oled">
+                        <span class="wp-preview wp-oled"></span>
+                        <span class="wp-label">Noir OLED</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Couleur des bulles envoyées -->
+            <div class="settings-section">
+                <label class="form-label" style="font-weight: 700; color: #a7f3d0;">💬 Couleur de vos bulles de messages</label>
+                <div class="bubble-color-row" id="bubbleColorPicker">
+                    <button type="button" class="bubble-color-btn active" data-bubble-color="#059669" style="background: #059669;">Émeraude</button>
+                    <button type="button" class="bubble-color-btn" data-bubble-color="#2563eb" style="background: #2563eb;">Saphir</button>
+                    <button type="button" class="bubble-color-btn" data-bubble-color="#7c3aed" style="background: #7c3aed;">Violet</button>
+                    <button type="button" class="bubble-color-btn" data-bubble-color="#db2777" style="background: #db2777;">Fuchsia</button>
+                    <button type="button" class="bubble-color-btn" data-bubble-color="#0891b2" style="background: #0891b2;">Cyan</button>
+                </div>
+            </div>
+
+            <button type="button" id="btnSaveSettings" class="btn btn-primary" style="width: 100%; margin-top: 1rem;">
+                ✔ Enregistrer mes préférences
+            </button>
+        </div>
+    </div>
+
+    <!-- Modal Membres du Salon (Présence en ligne en direct) -->
+    <div id="membersModal" class="modal-overlay">
+        <div class="modal-content" style="max-width: 420px;">
+            <button id="membersModalClose" class="modal-close">&times;</button>
+            <h2 style="font-size: 1.25rem; margin-bottom: 0.25rem; color: #fff;">👥 Membres du Salon</h2>
+            <p style="color: var(--text-secondary); font-size: 0.84rem; margin-bottom: 1rem;">
+                Personnes connectées à ce salon en ce moment.
+            </p>
+
+            <div id="membersListContainer" class="members-list-container">
+                <!-- Injected via JavaScript from api/presence.php -->
+                <div style="text-align: center; color: var(--text-muted); padding: 1.5rem;">
+                    Chargement des membres...
+                </div>
+            </div>
+
+            <div style="margin-top: 1.2rem; display: flex; gap: 0.5rem;">
+                <button type="button" id="btnLeaveRoom" class="btn btn-outline" style="flex: 1; color: var(--danger); border-color: rgba(239, 68, 68, 0.4);">
+                    🚪 Quitter ce salon
+                </button>
+                <button type="button" id="btnInviteMember" class="btn btn-secondary" style="flex: 1;">
+                    🔗 Inviter
+                </button>
+            </div>
         </div>
     </div>
 

@@ -2,7 +2,7 @@
  * OpenChat - Service Worker for PWA
  */
 
-const CACHE_NAME = 'openchat-v1.1';
+const CACHE_NAME = 'openchat-v1.2';
 const STATIC_ASSETS = [
     './',
     'index.php',
@@ -10,6 +10,10 @@ const STATIC_ASSETS = [
     'assets/js/app.js',
     'assets/js/qrcode.min.js',
     'assets/icons/icon.svg',
+    'assets/icons/icon-192.png',
+    'assets/icons/icon-512.png',
+    'assets/img/logo.svg',
+    'assets/img/logo.png',
     'manifest.json'
 ];
 
