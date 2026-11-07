@@ -12,6 +12,12 @@ class Config
     public const MAX_FILE_SIZE_MB = 25;
     public const MESSAGE_RETENTION_HOURS = 24; // Automatically cleans messages older than 24h
 
+    // Backblaze B2 Cloud Storage Configuration
+    public const B2_KEY_ID = '62d77b1f936d';
+    public const B2_APPLICATION_KEY = '00547aa9ce8352c6ad55534fba910355cbae817842';
+    public const B2_BUCKET_NAME = 'Openchats';
+    public const B2_BUCKET_ID = '36421db7d7ebb17fa913061d';
+
     public static function getRootDir(): string
     {
         return dirname(__DIR__);

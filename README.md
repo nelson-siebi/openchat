@@ -81,3 +81,4 @@ openchat/
 ## 📄 Licence
 
 Ce projet est sous licence MIT - libre de modification, d'hébergement et de distribution.
+

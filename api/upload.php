@@ -1,11 +1,13 @@
 <?php
 /**
  * OpenChat - File / Image Upload API
+ * Seamless Cloud (Backblaze B2) and Local fallback
  */
 
 declare(strict_types=1);
 
 require_once __DIR__ . '/../includes/Config.php';
+require_once __DIR__ . '/../includes/B2Storage.php';
 
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: POST, OPTIONS');
@@ -34,7 +36,7 @@ if ($file['size'] > $maxSizeBytes) {
     Config::jsonResponse(['success' => false, 'error' => 'Le fichier dépasse la taille maximale autorisée (' . Config::MAX_FILE_SIZE_MB . ' Mo).'], 400);
 }
 
-// Generate safe unique filename
+// Generate safe filename
 $originalName = basename($file['name']);
 $extension = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
 
@@ -44,6 +46,20 @@ if (in_array($extension, $blockedExtensions, true)) {
     Config::jsonResponse(['success' => false, 'error' => 'Type de fichier non autorisé pour des raisons de sécurité.'], 400);
 }
 
+$isImage = in_array($extension, ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'avif'], true);
+
+// 1. Try uploading to Backblaze B2 (Zero VPS Disk Space)
+if (B2Storage::isConfigured()) {
+    try {
+        $result = B2Storage::uploadFile($file['tmp_name'], $originalName);
+        Config::jsonResponse($result);
+    } catch (Throwable $e) {
+        // Log or fallback to local if B2 fails
+        error_log('B2 Upload error: ' . $e->getMessage());
+    }
+}
+
+// 2. Fallback to local storage if B2 is disabled or temporarily unavailable
 $safeUniqueName = bin2hex(random_bytes(16)) . ($extension ? '.' . $extension : '');
 $uploadsDir = Config::getUploadsDir();
 $targetPath = $uploadsDir . DIRECTORY_SEPARATOR . $safeUniqueName;
@@ -52,9 +68,6 @@ if (!move_uploaded_file($file['tmp_name'], $targetPath)) {
     Config::jsonResponse(['success' => false, 'error' => 'Impossible de sauvegarder le fichier sur le serveur.'], 500);
 }
 
-$isImage = in_array($extension, ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'avif'], true);
-$type = $isImage ? 'image' : 'file';
-
 $fileUrl = Config::getBaseUrl() . '/uploads/' . $safeUniqueName;
 
 Config::jsonResponse([
@@ -62,5 +75,5 @@ Config::jsonResponse([
     'file_url' => $fileUrl,
     'file_name' => $originalName,
     'file_size' => (int)$file['size'],
-    'type' => $type
+    'type' => $isImage ? 'image' : 'file'
 ]);

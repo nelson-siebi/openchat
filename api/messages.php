@@ -79,3 +79,4 @@ if ($method === 'POST') {
 }
 
 Config::jsonResponse(['success' => false, 'error' => 'Méthode non autorisée.'], 405);
+

@@ -69,3 +69,4 @@ if ($method === 'GET') {
 }
 
 Config::jsonResponse(['success' => false, 'error' => 'Méthode non autorisée.'], 405);
+

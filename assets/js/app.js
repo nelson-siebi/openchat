@@ -535,3 +535,4 @@ class OpenChatApp {
 document.addEventListener('DOMContentLoaded', () => {
     window.openChatApp = new OpenChatApp();
 });
+

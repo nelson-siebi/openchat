@@ -63,3 +63,4 @@ while (time() - $startTime < $maxDuration) {
 echo "event: reconnect\n";
 echo "data: {\"lastId\": {$lastId}}\n\n";
 flush();
+

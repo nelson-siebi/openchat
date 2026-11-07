@@ -195,3 +195,4 @@ class Database
         return substr($code, 0, 50);
     }
 }
+

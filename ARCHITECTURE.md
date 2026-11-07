@@ -128,3 +128,4 @@ Lorsque vous souhaiterez basculer sur **Node.js** :
 
 - **PHP** : Nginx / Apache + PHP-FPM + SQLite (zéro configuration DB).
 - **Node.js (futur)** : PM2 (`pm2 start server.js`) + Nginx Reverse Proxy avec support WebSocket (`Upgrade $http_upgrade`).
+
