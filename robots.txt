@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /data/
+Disallow: /includes/
+
+Sitemap: https://openchat.izyboost.site/sitemap.xml

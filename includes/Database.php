@@ -1,6 +1,7 @@
 <?php
 /**
  * OpenChat - SQLite Database Wrapper
+ * Messages, Replies, Reactions & Ephemeral Storage
  */
 
 declare(strict_types=1);
@@ -24,6 +25,7 @@ class Database
             self::$pdo->exec('PRAGMA synchronous = NORMAL;');
 
             self::initSchema();
+            self::checkMigrations();
         }
 
         return self::$pdo;
@@ -44,11 +46,15 @@ class Database
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 room_code TEXT NOT NULL,
                 sender TEXT NOT NULL,
-                type TEXT NOT NULL DEFAULT 'text', -- 'text', 'file', 'image', 'link'
+                type TEXT NOT NULL DEFAULT 'text', -- 'text', 'file', 'image', 'video', 'audio', 'link', 'peer_joined'
                 content TEXT NOT NULL,
                 file_url TEXT NULL,
                 file_name TEXT NULL,
                 file_size INTEGER NULL,
+                reply_to_id INTEGER DEFAULT NULL,
+                reply_to_sender TEXT DEFAULT NULL,
+                reply_to_content TEXT DEFAULT NULL,
+                reactions TEXT DEFAULT '{}',
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             );
 
@@ -57,6 +63,25 @@ class Database
         ";
 
         self::$pdo->exec($sql);
+    }
+
+    private static function checkMigrations(): void
+    {
+        $db = self::$pdo;
+        $cols = $db->query("PRAGMA table_info(messages)")->fetchAll(PDO::FETCH_COLUMN, 1);
+
+        if (!in_array('reply_to_id', $cols, true)) {
+            $db->exec("ALTER TABLE messages ADD COLUMN reply_to_id INTEGER DEFAULT NULL");
+        }
+        if (!in_array('reply_to_sender', $cols, true)) {
+            $db->exec("ALTER TABLE messages ADD COLUMN reply_to_sender TEXT DEFAULT NULL");
+        }
+        if (!in_array('reply_to_content', $cols, true)) {
+            $db->exec("ALTER TABLE messages ADD COLUMN reply_to_content TEXT DEFAULT NULL");
+        }
+        if (!in_array('reactions', $cols, true)) {
+            $db->exec("ALTER TABLE messages ADD COLUMN reactions TEXT DEFAULT '{}'");
+        }
     }
 
     public static function getOrCreateRoom(string $code, string $title = ''): array
@@ -75,7 +100,7 @@ class Database
         }
 
         if (empty($title)) {
-            $title = 'Salon ' . strtoupper($code);
+            $title = $code === 'public' ? 'Salon Public Général' : 'Salon ' . strtoupper($code);
         }
 
         $ins = $db->prepare("INSERT INTO rooms (code, title) VALUES (:code, :title)");
@@ -97,7 +122,10 @@ class Database
         string $type = 'text',
         ?string $fileUrl = null,
         ?string $fileName = null,
-        ?int $fileSize = null
+        ?int $fileSize = null,
+        ?int $replyToId = null,
+        ?string $replyToSender = null,
+        ?string $replyToContent = null
     ): array {
         $roomCode = self::sanitizeCode($roomCode);
         $sender = trim($sender) !== '' ? trim(strip_tags($sender)) : 'Anonyme';
@@ -107,8 +135,14 @@ class Database
         self::getOrCreateRoom($roomCode);
 
         $stmt = $db->prepare("
-            INSERT INTO messages (room_code, sender, type, content, file_url, file_name, file_size)
-            VALUES (:room_code, :sender, :type, :content, :file_url, :file_name, :file_size)
+            INSERT INTO messages (
+                room_code, sender, type, content, file_url, file_name, file_size, 
+                reply_to_id, reply_to_sender, reply_to_content, reactions
+            )
+            VALUES (
+                :room_code, :sender, :type, :content, :file_url, :file_name, :file_size,
+                :reply_to_id, :reply_to_sender, :reply_to_content, '{}'
+            )
         ");
 
         $stmt->execute([
@@ -118,7 +152,10 @@ class Database
             ':content' => $content,
             ':file_url' => $fileUrl,
             ':file_name' => $fileName,
-            ':file_size' => $fileSize
+            ':file_size' => $fileSize,
+            ':reply_to_id' => $replyToId,
+            ':reply_to_sender' => $replyToSender,
+            ':reply_to_content' => $replyToContent
         ]);
 
         $messageId = (int)$db->lastInsertId();
@@ -136,7 +173,40 @@ class Database
             'file_url' => $fileUrl,
             'file_name' => $fileName,
             'file_size' => $fileSize,
+            'reply_to_id' => $replyToId,
+            'reply_to_sender' => $replyToSender,
+            'reply_to_content' => $replyToContent,
+            'reactions' => '{}',
             'created_at' => date('Y-m-d H:i:s')
+        ];
+    }
+
+    public static function toggleReaction(int $messageId, string $emoji): array
+    {
+        $db = self::getConnection();
+        $stmt = $db->prepare("SELECT id, room_code, reactions FROM messages WHERE id = :id LIMIT 1");
+        $stmt->execute([':id' => $messageId]);
+        $msg = $stmt->fetch();
+
+        if (!$msg) {
+            return ['success' => false, 'error' => 'Message introuvable'];
+        }
+
+        $reactions = json_decode($msg['reactions'] ?: '{}', true) ?: [];
+        $currentCount = $reactions[$emoji] ?? 0;
+        $reactions[$emoji] = $currentCount + 1;
+
+        $upd = $db->prepare("UPDATE messages SET reactions = :reactions WHERE id = :id");
+        $upd->execute([
+            ':reactions' => json_encode($reactions, JSON_UNESCAPED_UNICODE),
+            ':id' => $messageId
+        ]);
+
+        return [
+            'success' => true,
+            'message_id' => $messageId,
+            'reactions' => $reactions,
+            'room_code' => $msg['room_code']
         ];
     }
 
@@ -195,4 +265,3 @@ class Database
         return substr($code, 0, 50);
     }
 }
-

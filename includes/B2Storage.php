@@ -142,8 +142,9 @@ class B2Storage
         $finalUrl = $downloadToken ? ($downloadBaseUrl . '?Authorization=' . urlencode($downloadToken)) : $downloadBaseUrl;
 
         $isImage = in_array($extension, ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'avif'], true);
-        $isAudio = in_array($extension, ['webm', 'wav', 'mp3', 'ogg', 'm4a', 'aac', 'opus'], true);
-        $type = $isImage ? 'image' : ($isAudio ? 'audio' : 'file');
+        $isVideo = in_array($extension, ['mp4', 'mov', 'webm', 'mkv', 'avi', 'm4v'], true);
+        $isAudio = in_array($extension, ['wav', 'mp3', 'ogg', 'm4a', 'aac', 'opus'], true);
+        $type = $isImage ? 'image' : ($isVideo ? 'video' : ($isAudio ? 'audio' : 'file'));
 
         return [
             'success' => true,

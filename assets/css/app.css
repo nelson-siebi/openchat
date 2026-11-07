@@ -117,25 +117,15 @@ a:hover {
 .logo-area {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    font-weight: 800;
-    font-size: 1.15rem;
-    color: #fff;
+    gap: 0.45rem;
     text-decoration: none;
-    letter-spacing: -0.02em;
     flex-shrink: 0;
 }
 
-.logo-icon {
-    width: 34px;
-    height: 34px;
-    background: linear-gradient(135deg, #10b981 0%, #2563eb 100%);
-    border-radius: var(--radius-md);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 1.1rem;
-    box-shadow: 0 4px 12px var(--primary-glow);
+.app-logo-img {
+    height: 28px;
+    width: auto;
+    display: block;
 }
 
 .room-badge {
@@ -181,6 +171,25 @@ a:hover {
     align-items: center;
     gap: 0.45rem;
     flex-shrink: 0;
+}
+
+/* Notification Permission Bar */
+.notification-banner {
+    background: linear-gradient(90deg, rgba(16, 185, 129, 0.15), rgba(37, 99, 235, 0.15));
+    border-bottom: 1px solid rgba(16, 185, 129, 0.3);
+    padding: 0.5rem 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 0.82rem;
+    color: #e2e8f0;
+    z-index: 29;
+}
+
+.notification-banner-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
 }
 
 /* Buttons */
@@ -439,7 +448,7 @@ a:hover {
 .message-row {
     display: flex;
     flex-direction: column;
-    max-width: 76%;
+    max-width: 78%;
     position: relative;
     animation: slideUp 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
@@ -469,6 +478,29 @@ a:hover {
 
 .message-row.mine .message-meta {
     justify-content: flex-end;
+}
+
+/* Quoted Reply inside Bubble */
+.reply-quote {
+    background: rgba(0, 0, 0, 0.25);
+    border-left: 3px solid var(--primary);
+    padding: 0.35rem 0.6rem;
+    border-radius: var(--radius-sm);
+    margin-bottom: 0.45rem;
+    font-size: 0.8rem;
+}
+
+.reply-quote-sender {
+    font-weight: 700;
+    color: #34d399;
+    margin-bottom: 0.15rem;
+}
+
+.reply-quote-text {
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .message-bubble {
@@ -514,7 +546,7 @@ a:hover {
     border-radius: 9999px;
 }
 
-/* Image Attachment */
+/* Image & Video Attachments */
 .message-image {
     max-width: 100%;
     max-height: 380px;
@@ -526,7 +558,23 @@ a:hover {
     border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-/* File Attachment Card with Dual Actions (Open + Download) */
+.message-video {
+    max-width: 100%;
+    max-height: 380px;
+    border-radius: var(--radius-md);
+    display: block;
+    margin-top: 0.4rem;
+    background: #000;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.message-caption {
+    margin-top: 0.4rem;
+    font-size: 0.92rem;
+    line-height: 1.45;
+}
+
+/* File Attachment Card */
 .file-card {
     background: rgba(0, 0, 0, 0.3);
     border: 1px solid rgba(255, 255, 255, 0.1);
@@ -698,32 +746,135 @@ a:hover {
     transform: scale(1.15);
 }
 
-/* Quick copy button on bubble */
-.copy-btn {
-    position: absolute;
-    top: 50%;
-    transform: translateY(-50%);
-    background: rgba(15, 23, 42, 0.95);
-    border: 1px solid var(--border-subtle);
-    color: var(--text-secondary);
-    border-radius: var(--radius-sm);
-    padding: 3px 7px;
-    font-size: 0.72rem;
-    cursor: pointer;
-    transition: all 0.2s;
-    backdrop-filter: blur(8px);
-    opacity: 0;
+/* Message Hover Actions (Reply, Like, Copy) */
+.message-actions-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    margin-top: 0.3rem;
 }
 
-.message-row.mine .copy-btn { left: -52px; }
-.message-row.theirs .copy-btn { right: -52px; }
-.message-row:hover .copy-btn { opacity: 1; }
-.copy-btn:hover { background: #1e293b; color: #34d399; }
+.message-row.mine .message-actions-bar {
+    justify-content: flex-end;
+}
+
+.action-chip {
+    background: rgba(15, 23, 42, 0.85);
+    border: 1px solid var(--border-subtle);
+    color: var(--text-secondary);
+    border-radius: 9999px;
+    padding: 2px 7px;
+    font-size: 0.72rem;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    transition: all 0.15s;
+    backdrop-filter: blur(8px);
+}
+
+.action-chip:hover {
+    background: #1e293b;
+    border-color: var(--primary);
+    color: #34d399;
+}
+
+/* Reactions Counters Container */
+.reactions-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    margin-top: 0.3rem;
+}
+
+.message-row.mine .reactions-container {
+    justify-content: flex-end;
+}
+
+.reaction-pill {
+    background: rgba(15, 23, 42, 0.9);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 9999px;
+    padding: 2px 7px;
+    font-size: 0.74rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    cursor: pointer;
+    transition: transform 0.15s, border-color 0.15s;
+}
+
+.reaction-pill:hover {
+    transform: scale(1.08);
+    border-color: var(--primary);
+}
+
+.reaction-pill .count {
+    font-weight: 700;
+    color: #a7f3d0;
+}
+
+/* Active Reply & Attachment Bar above input */
+.active-context-bar {
+    background: rgba(11, 17, 32, 0.95);
+    border-top: 1px solid var(--border-subtle);
+    padding: 0.45rem 1rem;
+    display: none;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    font-size: 0.82rem;
+}
+
+.active-context-info {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+/* Emoji Picker Popover */
+.emoji-popover {
+    position: absolute;
+    bottom: 60px;
+    left: 1rem;
+    background: #0b1120;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-lg);
+    box-shadow: 0 15px 40px rgba(0,0,0,0.6);
+    padding: 0.75rem;
+    width: 290px;
+    display: none;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 0.35rem;
+    z-index: 60;
+    backdrop-filter: blur(20px);
+}
+
+.emoji-btn {
+    background: transparent;
+    border: none;
+    font-size: 1.3rem;
+    cursor: pointer;
+    padding: 0.25rem;
+    border-radius: var(--radius-sm);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.1s, background 0.1s;
+}
+
+.emoji-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    transform: scale(1.2);
+}
 
 /* Chat Footer & Input Area */
 .chat-footer {
     flex-shrink: 0;
-    padding: 0.65rem 1rem;
+    padding: 0.55rem 0.85rem;
     position: relative;
     border-top: 1px solid var(--border-subtle);
     background: rgba(2, 6, 23, 0.88);
@@ -770,7 +921,7 @@ a:hover {
     outline: none;
     color: #fff;
     font-family: inherit;
-    font-size: 16px; /* 16px prevents iOS auto-zoom on focus */
+    font-size: 16px;
     resize: none;
     height: 38px;
     max-height: 120px;
@@ -963,11 +1114,12 @@ a:hover {
         display: block;
     }
 
-    .message-row { max-width: 90%; }
+    .message-row { max-width: 92%; }
     .btn-text-hide { display: none; }
-    .room-badge { max-width: 130px; font-size: 0.78rem; }
+    .room-badge { max-width: 120px; font-size: 0.76rem; }
     .app-header { padding: 0.5rem 0.75rem; }
     .chat-messages { padding: 0.75rem 0.5rem; }
-    .chat-footer { padding: 0.5rem 0.75rem; }
+    .chat-footer { padding: 0.5rem 0.65rem; }
     .toast-container { right: 1rem; bottom: 1.5rem; }
+    .emoji-popover { left: 0.5rem; width: 280px; }
 }

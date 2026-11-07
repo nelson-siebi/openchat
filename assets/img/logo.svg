@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 120" width="320" height="120">
+  <defs>
+    <linearGradient id="logoGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#10b981" />
+      <stop offset="100%" stop-color="#34d399" />
+    </linearGradient>
+  </defs>
+
+  <!-- Speech bubble forming letter C -->
+  <g fill="none" stroke="#ffffff" stroke-width="11" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Circle arc open on the right (from angle ~30 deg to 330 deg) with a tail at bottom left -->
+    <path d="M 85 28 A 44 44 0 1 0 54 96 L 36 108 L 48 88 A 44 44 0 0 0 85 88" />
+  </g>
+
+  <!-- Three dots inside the bubble -->
+  <circle cx="50" cy="58" r="5" fill="#10b981" />
+  <circle cx="67" cy="58" r="5" fill="#10b981" />
+  <circle cx="84" cy="58" r="5" fill="#10b981" />
+
+  <!-- Text: "hat" in clean sans-serif matching the logo -->
+  <text x="110" y="75" font-family="'Outfit', system-ui, sans-serif" font-size="64" font-weight="700" fill="#ffffff" letter-spacing="-1">hat</text>
+</svg>

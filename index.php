@@ -17,15 +17,58 @@ if (empty($requestedCode)) {
 
 $room = Database::getOrCreateRoom($requestedCode, $requestedCode === 'public' ? 'Salon Public Général' : '');
 $isPublicRoom = ($room['code'] === 'public');
+
+$pageTitle = $isPublicRoom ? 'OpenChat - Chat & Partage Instantané Sans Inscription' : 'Salon Privé ' . htmlspecialchars($room['code']) . ' - OpenChat';
+$pageDesc = 'Partagez en 1 seconde chrono des messages, liens, photos, vocaux et fichiers entre PC et Smartphone ou avec vos amis sans compte ni mot de passe.';
+$canonicalUrl = Config::getBaseUrl() . '/index.php' . ($isPublicRoom ? '' : '?code=' . urlencode($room['code']));
+$ogImage = Config::getBaseUrl() . '/assets/img/logo.png';
 ?>
 <!DOCTYPE html>
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title><?= $isPublicRoom ? 'Salon Public - OpenChat' : 'Salon Privé : ' . htmlspecialchars($room['code']) . ' - OpenChat' ?></title>
     
-    <!-- PWA & Meta -->
+    <!-- SEO Standard Meta -->
+    <title><?= htmlspecialchars($pageTitle) ?></title>
+    <meta name="description" content="<?= htmlspecialchars($pageDesc) ?>">
+    <meta name="keywords" content="chat instantané, partage fichier rapide, transfert pc mobile, pwa chat, chat sans inscription, open source chat, drop rapide, backblaze b2">
+    <meta name="robots" content="index, follow">
+    <link rel="canonical" href="<?= htmlspecialchars($canonicalUrl) ?>">
+
+    <!-- Open Graph (Facebook, WhatsApp, LinkedIn) -->
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="<?= htmlspecialchars($pageTitle) ?>">
+    <meta property="og:description" content="<?= htmlspecialchars($pageDesc) ?>">
+    <meta property="og:url" content="<?= htmlspecialchars($canonicalUrl) ?>">
+    <meta property="og:image" content="<?= htmlspecialchars($ogImage) ?>">
+    <meta property="og:site_name" content="OpenChat">
+
+    <!-- Twitter Cards -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="<?= htmlspecialchars($pageTitle) ?>">
+    <meta name="twitter:description" content="<?= htmlspecialchars($pageDesc) ?>">
+    <meta name="twitter:image" content="<?= htmlspecialchars($ogImage) ?>">
+
+    <!-- Schema.org JSON-LD -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebApplication",
+      "name": "OpenChat",
+      "url": "https://openchat.izyboost.site",
+      "description": "Plateforme de chat instantané et de partage de fichiers sans compte.",
+      "applicationCategory": "CommunicationApplication",
+      "operatingSystem": "All",
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "USD"
+      }
+    }
+    </script>
+
+    <!-- PWA & Mobile Icons -->
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#020617">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -39,6 +82,15 @@ $isPublicRoom = ($room['code'] === 'public');
 </head>
 <body>
 
+    <!-- Notification Permission Top Banner -->
+    <div id="notificationBanner" class="notification-banner" style="display: none;">
+        <span>🔔 <strong>Activez les notifications</strong> pour être averti en direct des nouveaux messages et fichiers même en arrière-plan.</span>
+        <div class="notification-banner-actions">
+            <button id="btnAllowNotifications" class="btn btn-primary btn-sm">Autoriser</button>
+            <button id="btnDismissNotifications" class="btn btn-outline btn-sm">Plus tard</button>
+        </div>
+    </div>
+
     <!-- Header -->
     <header class="app-header">
         <div class="header-left">
@@ -46,9 +98,8 @@ $isPublicRoom = ($room['code'] === 'public');
                 ☰
             </button>
 
-            <a href="index.php" class="logo-area">
-                <div class="logo-icon">💬</div>
-                <span>OpenChat</span>
+            <a href="index.php" class="logo-area" title="OpenChat Accueil">
+                <img src="assets/img/logo.svg" alt="OpenChat" class="app-logo-img" onerror="this.src='assets/img/logo.png'">
             </a>
 
             <div class="room-badge <?= $isPublicRoom ? '' : 'private' ?>" id="currentRoomBadge">
@@ -58,9 +109,9 @@ $isPublicRoom = ($room['code'] === 'public');
         </div>
 
         <div class="header-actions">
-            <!-- PWA Install Button (Hidden until installable) -->
+            <!-- PWA Install Button -->
             <button id="btnPwaInstall" class="btn btn-primary btn-sm" style="display: none;" title="Installer l'application">
-                📲 <span class="btn-text-hide">Installer l'app</span>
+                📲 <span class="btn-text-hide">Installer</span>
             </button>
 
             <button id="userNickname" class="btn btn-outline btn-sm" title="Modifier votre pseudo">
@@ -136,13 +187,13 @@ $isPublicRoom = ($room['code'] === 'public');
         <main class="chat-main">
             <?php if ($isPublicRoom): ?>
                 <div class="public-banner">
-                    <span>💡 <strong>Salon Public :</strong> Messages, photos, vocaux et fichiers partagés ici. Pour un échange confidentiel, créez un salon privé.</span>
+                    <span>💡 <strong>Salon Public :</strong> Messages, photos, vidéos, vocaux et fichiers partagés ici. Pour un échange confidentiel, créez un salon privé.</span>
                 </div>
             <?php endif; ?>
 
             <!-- Drag & Drop overlay indicator -->
             <div id="dropzoneOverlay" class="dropzone-overlay">
-                📥 Déposez votre fichier ici pour l'envoyer instantanément !
+                📥 Déposez vos photos, vidéos ou documents ici !
             </div>
 
             <!-- Messages Stream Container -->
@@ -155,6 +206,19 @@ $isPublicRoom = ($room['code'] === 'public');
                 ⬇️ <span id="scrollBottomText">Nouveaux messages</span>
             </button>
 
+            <!-- Active Context Bar (Reply / Pending Upload) -->
+            <div id="activeContextBar" class="active-context-bar">
+                <div class="active-context-info" id="activeContextInfo">
+                    <!-- Injected by JS: Reply target or Pending file -->
+                </div>
+                <button type="button" id="btnCancelContext" class="btn-icon" style="width: 24px; height: 24px; font-size: 0.75rem;" title="Annuler">✕</button>
+            </div>
+
+            <!-- Emoji Picker Popover -->
+            <div id="emojiPopover" class="emoji-popover">
+                <!-- Injected by JS with quick emojis -->
+            </div>
+
             <!-- Chat Input Footer -->
             <footer class="chat-footer">
                 <input type="file" id="fileInput" style="display: none;">
@@ -162,8 +226,12 @@ $isPublicRoom = ($room['code'] === 'public');
                 <div class="input-bar">
                     <!-- Standard Input Bar Controls -->
                     <div id="normalInputBar" style="display: flex; align-items: center; width: 100%; gap: 0.45rem;">
-                        <button type="button" id="btnAttachFile" class="btn-icon" title="Envoyer une photo ou un document">
+                        <button type="button" id="btnAttachFile" class="btn-icon" title="Envoyer une photo, vidéo ou document">
                             📎
+                        </button>
+
+                        <button type="button" id="btnToggleEmoji" class="btn-icon" title="Ajouter des emojis et stickers">
+                            😊
                         </button>
 
                         <button type="button" id="btnStartVoice" class="btn-icon" title="Enregistrer un message vocal (Audio)">
@@ -172,7 +240,7 @@ $isPublicRoom = ($room['code'] === 'public');
 
                         <textarea 
                             id="messageInput" 
-                            placeholder="<?= $isPublicRoom ? 'Écrivez un message, collez un email ou une image (Ctrl+V)...' : 'Écrivez dans ce salon privé, collez une image (Ctrl+V)...' ?>" 
+                            placeholder="<?= $isPublicRoom ? 'Écrivez un message, collez un email ou une image (Ctrl+V)...' : 'Écrivez dans ce salon privé...' ?>" 
                             rows="1"
                         ></textarea>
 
