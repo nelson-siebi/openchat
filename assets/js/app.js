@@ -1,16 +1,18 @@
 /**
  * OpenChat - Client Application Logic
+ * PWA + NelsiusPay Visual Style + Instant Public & Private Rooms
  */
 
 class OpenChatApp {
     constructor() {
-        this.roomCode = this.getParam('code') || '';
+        this.roomCode = this.getParam('code') || 'public';
         this.username = localStorage.getItem('openchat_username') || this.generateDefaultUsername();
         this.lastMessageId = 0;
         this.seenMessageIds = new Set();
         this.eventSource = null;
         this.pollTimer = null;
         this.soundEnabled = localStorage.getItem('openchat_sound') !== 'false';
+        this.deferredInstallPrompt = null;
 
         this.init();
     }
@@ -28,97 +30,153 @@ class OpenChatApp {
     }
 
     init() {
-        // Handle landing page vs room page
-        if (document.getElementById('chatMessages')) {
-            this.initRoomPage();
-        } else if (document.getElementById('btnCreateRoom')) {
-            this.initLandingPage();
-        }
-    }
-
-    // ==========================================
-    // LANDING PAGE LOGIC
-    // ==========================================
-    initLandingPage() {
-        const btnCreate = document.getElementById('btnCreateRoom');
-        const inputCustom = document.getElementById('inputRoomCode');
-        const formJoin = document.getElementById('formJoinRoom');
-
-        if (btnCreate) {
-            btnCreate.addEventListener('click', async () => {
-                btnCreate.disabled = true;
-                btnCreate.textContent = 'Création du salon...';
-                try {
-                    const res = await fetch('api/rooms.php', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({})
-                    });
-                    const data = await res.json();
-                    if (data.success && data.room) {
-                        window.location.href = `room.php?code=${encodeURIComponent(data.room.code)}`;
-                    } else {
-                        alert(data.error || 'Erreur lors de la création');
-                        btnCreate.disabled = false;
-                        btnCreate.textContent = '🚀 Créer un salon instantané';
-                    }
-                } catch (e) {
-                    alert('Erreur réseau.');
-                    btnCreate.disabled = false;
-                    btnCreate.textContent = '🚀 Créer un salon instantané';
-                }
-            });
-        }
-
-        if (formJoin) {
-            formJoin.addEventListener('submit', (e) => {
-                e.preventDefault();
-                const code = inputCustom.value.trim().toLowerCase();
-                if (code) {
-                    window.location.href = `room.php?code=${encodeURIComponent(code)}`;
-                }
-            });
-        }
-    }
-
-    // ==========================================
-    // ROOM PAGE LOGIC
-    // ==========================================
-    initRoomPage() {
-        if (!this.roomCode) {
-            window.location.href = 'index.php';
-            return;
-        }
-
+        this.saveCurrentRoomToRecent();
+        this.setupPWA();
+        this.setupSidebar();
         this.setupUI();
+        this.setupModals();
         this.setupClipboardAndDrop();
         this.setupLiveSync();
         this.fetchInitialMessages();
+        this.renderRecentRoomsList();
     }
 
+    // ==========================================
+    // PWA REGISTRATION & INSTALLATION
+    // ==========================================
+    setupPWA() {
+        // Register Service Worker
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('sw.js')
+                    .then(() => console.log('OpenChat PWA: Service Worker actif'))
+                    .catch((err) => console.log('OpenChat PWA: Erreur SW', err));
+            });
+        }
+
+        // Capture BeforeInstallPrompt for custom Install Button
+        const pwaBtn = document.getElementById('btnPwaInstall');
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            this.deferredInstallPrompt = e;
+            if (pwaBtn) {
+                pwaBtn.style.display = 'inline-flex';
+                pwaBtn.addEventListener('click', async () => {
+                    pwaBtn.style.display = 'none';
+                    if (this.deferredInstallPrompt) {
+                        this.deferredInstallPrompt.prompt();
+                        const { outcome } = await this.deferredInstallPrompt.userChoice;
+                        if (outcome === 'accepted') {
+                            this.showToast('Application installée avec succès !');
+                        }
+                        this.deferredInstallPrompt = null;
+                    }
+                });
+            }
+        });
+    }
+
+    // ==========================================
+    // SIDEBAR & RECENT ROOMS
+    // ==========================================
+    setupSidebar() {
+        const btnToggle = document.getElementById('btnToggleSidebar');
+        const btnClose = document.getElementById('btnCloseSidebar');
+        const sidebar = document.getElementById('appSidebar');
+        const overlay = document.getElementById('sidebarOverlay');
+
+        const toggle = () => {
+            sidebar.classList.toggle('open');
+            overlay.classList.toggle('open');
+        };
+
+        if (btnToggle) btnToggle.addEventListener('click', toggle);
+        if (btnClose) btnClose.addEventListener('click', toggle);
+        if (overlay) overlay.addEventListener('click', toggle);
+    }
+
+    saveCurrentRoomToRecent() {
+        if (!this.roomCode || this.roomCode === 'public') return;
+        try {
+            let recent = JSON.parse(localStorage.getItem('openchat_recent_rooms') || '[]');
+            recent = recent.filter(r => r !== this.roomCode);
+            recent.unshift(this.roomCode);
+            recent = recent.slice(0, 10); // Keep last 10
+            localStorage.setItem('openchat_recent_rooms', JSON.stringify(recent));
+        } catch (e) {}
+    }
+
+    renderRecentRoomsList() {
+        const container = document.getElementById('recentRoomsList');
+        if (!container) return;
+
+        try {
+            const recent = JSON.parse(localStorage.getItem('openchat_recent_rooms') || '[]');
+            container.innerHTML = '';
+            
+            if (recent.length === 0) {
+                container.innerHTML = `<div style="font-size: 0.78rem; color: var(--text-muted); padding: 0.5rem;">Aucun salon privé récent.</div>`;
+                return;
+            }
+
+            recent.forEach(code => {
+                const isActive = code === this.roomCode;
+                const item = document.createElement('a');
+                item.href = `index.php?code=${encodeURIComponent(code)}`;
+                item.className = `room-nav-item ${isActive ? 'active' : ''}`;
+                item.innerHTML = `
+                    <span class="room-nav-icon">🔒</span>
+                    <div class="room-nav-info">
+                        <div class="room-nav-name">${this.escapeHtml(code)}</div>
+                        <div class="room-nav-sub">Salon Privé</div>
+                    </div>
+                `;
+                container.appendChild(item);
+            });
+        } catch (e) {}
+    }
+
+    // ==========================================
+    // UI SETUP & MODALS
+    // ==========================================
     setupUI() {
-        // Nickname display & edit
+        // Nickname
         const nickDisplay = document.getElementById('userNickname');
         if (nickDisplay) {
-            nickDisplay.textContent = this.username;
+            nickDisplay.textContent = `👤 ${this.username}`;
             nickDisplay.addEventListener('click', () => {
-                const newName = prompt('Changer votre pseudo :', this.username);
+                const newName = prompt('Modifier votre pseudo :', this.username);
                 if (newName && newName.trim()) {
-                    this.username = newName.trim().substring(0, 30);
+                    this.username = newName.trim().substring(0, 25);
                     localStorage.setItem('openchat_username', this.username);
-                    nickDisplay.textContent = this.username;
-                    this.showToast(`Pseudo changé en : ${this.username}`);
+                    nickDisplay.textContent = `👤 ${this.username}`;
+                    this.showToast(`Pseudo mis à jour : ${this.username}`);
                 }
             });
         }
 
-        // Room code display
-        const roomCodeDisplay = document.getElementById('roomCodeDisplay');
-        if (roomCodeDisplay) {
-            roomCodeDisplay.textContent = this.roomCode;
+        // Sound Toggle
+        const btnSound = document.getElementById('btnToggleSound');
+        if (btnSound) {
+            btnSound.innerHTML = this.soundEnabled ? '🔔' : '🔕';
+            btnSound.addEventListener('click', () => {
+                this.soundEnabled = !this.soundEnabled;
+                localStorage.setItem('openchat_sound', this.soundEnabled ? 'true' : 'false');
+                btnSound.innerHTML = this.soundEnabled ? '🔔' : '🔕';
+                this.showToast(this.soundEnabled ? 'Notifications sonores activées' : 'Notifications sonores désactivées');
+            });
         }
 
-        // QR Code Modal Trigger
+        // Share link copy
+        const btnCopyLink = document.getElementById('btnCopyShareLink');
+        if (btnCopyLink) {
+            btnCopyLink.addEventListener('click', () => {
+                navigator.clipboard.writeText(window.location.href);
+                this.showToast('Lien du salon copié dans le presse-papier !');
+            });
+        }
+
+        // QR Code Modal
         const btnQr = document.getElementById('btnShowQr');
         const qrModal = document.getElementById('qrModal');
         const qrClose = document.getElementById('qrModalClose');
@@ -140,28 +198,7 @@ class OpenChatApp {
             });
         }
 
-        // Share link copy button
-        const btnCopyLink = document.getElementById('btnCopyShareLink');
-        if (btnCopyLink) {
-            btnCopyLink.addEventListener('click', () => {
-                navigator.clipboard.writeText(window.location.href);
-                this.showToast('Lien du salon copié dans le presse-papier !');
-            });
-        }
-
-        // Sound Toggle
-        const btnSound = document.getElementById('btnToggleSound');
-        if (btnSound) {
-            btnSound.innerHTML = this.soundEnabled ? '🔔' : '🔕';
-            btnSound.addEventListener('click', () => {
-                this.soundEnabled = !this.soundEnabled;
-                localStorage.setItem('openchat_sound', this.soundEnabled ? 'true' : 'false');
-                btnSound.innerHTML = this.soundEnabled ? '🔔' : '🔕';
-                this.showToast(this.soundEnabled ? 'Son activé' : 'Son désactivé');
-            });
-        }
-
-        // Message input handling
+        // Textarea input & Send
         const msgInput = document.getElementById('messageInput');
         const sendBtn = document.getElementById('btnSendMessage');
         const fileInput = document.getElementById('fileInput');
@@ -174,7 +211,7 @@ class OpenChatApp {
                     this.sendMessage();
                 }
             });
-            // Auto expand textarea height
+
             msgInput.addEventListener('input', () => {
                 msgInput.style.height = 'auto';
                 msgInput.style.height = Math.min(msgInput.scrollHeight, 120) + 'px';
@@ -196,6 +233,92 @@ class OpenChatApp {
         }
     }
 
+    setupModals() {
+        // Create Private Room Modal
+        const btnOpenCreate = document.getElementById('btnOpenCreateModal');
+        const createModal = document.getElementById('createRoomModal');
+        const createClose = document.getElementById('createRoomModalClose');
+        const btnGen = document.getElementById('btnGenerateInstantRoom');
+        const formCustom = document.getElementById('formCustomRoom');
+        const customInput = document.getElementById('customRoomInput');
+
+        if (btnOpenCreate && createModal) {
+            btnOpenCreate.addEventListener('click', () => {
+                createModal.style.display = 'flex';
+            });
+
+            if (createClose) {
+                createClose.addEventListener('click', () => createModal.style.display = 'none');
+            }
+
+            createModal.addEventListener('click', (e) => {
+                if (e.target === createModal) createModal.style.display = 'none';
+            });
+
+            if (btnGen) {
+                btnGen.addEventListener('click', async () => {
+                    btnGen.disabled = true;
+                    btnGen.textContent = 'Création...';
+                    try {
+                        const res = await fetch('api/rooms.php', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({})
+                        });
+                        const data = await res.json();
+                        if (data.success && data.room) {
+                            window.location.href = `index.php?code=${encodeURIComponent(data.room.code)}`;
+                        }
+                    } catch (e) {
+                        btnGen.disabled = false;
+                        btnGen.textContent = '⚡ Générer un salon aléatoire';
+                    }
+                });
+            }
+
+            if (formCustom) {
+                formCustom.addEventListener('submit', (e) => {
+                    e.preventDefault();
+                    const code = customInput.value.trim().toLowerCase();
+                    if (code) {
+                        window.location.href = `index.php?code=${encodeURIComponent(code)}`;
+                    }
+                });
+            }
+        }
+
+        // Join Room Modal
+        const btnOpenJoin = document.getElementById('btnOpenJoinModal');
+        const joinModal = document.getElementById('joinRoomModal');
+        const joinClose = document.getElementById('joinRoomModalClose');
+        const formJoin = document.getElementById('formJoinRoomCode');
+        const joinInput = document.getElementById('joinRoomInput');
+
+        if (btnOpenJoin && joinModal) {
+            btnOpenJoin.addEventListener('click', () => {
+                joinModal.style.display = 'flex';
+            });
+
+            if (joinClose) {
+                joinClose.addEventListener('click', () => joinModal.style.display = 'none');
+            }
+
+            joinModal.addEventListener('click', (e) => {
+                if (e.target === joinModal) joinModal.style.display = 'none';
+            });
+
+            if (formJoin) {
+                formJoin.addEventListener('submit', (e) => {
+                    e.preventDefault();
+                    const code = joinInput.value.trim().toLowerCase();
+                    if (code) {
+                        window.location.href = `index.php?code=${encodeURIComponent(code)}`;
+                    }
+                });
+            }
+        }
+    }
+
     renderQRCode() {
         const qrContainer = document.getElementById('qrCodeContainer');
         if (!qrContainer) return;
@@ -206,7 +329,7 @@ class OpenChatApp {
                 text: window.location.href,
                 width: 200,
                 height: 200,
-                colorDark: '#0f172a',
+                colorDark: '#020617',
                 colorLight: '#ffffff',
                 correctLevel: QRCode.CorrectLevel.M
             });
@@ -216,7 +339,6 @@ class OpenChatApp {
     }
 
     setupClipboardAndDrop() {
-        // Drag & Drop anywhere on screen
         const overlay = document.getElementById('dropzoneOverlay');
 
         window.addEventListener('dragover', (e) => {
@@ -256,7 +378,7 @@ class OpenChatApp {
     }
 
     async uploadAndSendFile(file, customName = null) {
-        this.showToast(`Envoi de ${customName || file.name}...`);
+        this.showToast(`Téléversement vers Backblaze B2...`);
 
         const formData = new FormData();
         formData.append('file', file, customName || file.name);
@@ -282,7 +404,7 @@ class OpenChatApp {
                         file_size: data.file_size
                     })
                 });
-                this.showToast('Fichier envoyé !');
+                this.showToast('Fichier partagé !');
             } else {
                 alert(data.error || 'Erreur lors du téléversement.');
             }
@@ -330,12 +452,11 @@ class OpenChatApp {
                 this.scrollToBottom();
             }
         } catch (e) {
-            console.error('Initial fetch failed', e);
+            console.error('Fetch initial failed', e);
         }
     }
 
     setupLiveSync() {
-        // SSE implementation with reconnect & fallback
         if (typeof EventSource !== 'undefined') {
             this.connectSSE();
         } else {
@@ -359,18 +480,15 @@ class OpenChatApp {
                         this.appendMessage(msg, true);
                     });
                 }
-            } catch (err) {
-                console.error('SSE parse error', err);
-            }
+            } catch (err) {}
         });
 
-        this.eventSource.addEventListener('reconnect', (e) => {
+        this.eventSource.addEventListener('reconnect', () => {
             this.connectSSE();
         });
 
         this.eventSource.onerror = () => {
             this.eventSource.close();
-            // Try reconnect after 2 seconds or fallback to polling
             setTimeout(() => this.connectSSE(), 2500);
         };
     }
@@ -415,7 +533,7 @@ class OpenChatApp {
                     <span class="file-icon">📁</span>
                     <div class="file-info">
                         <div class="file-name">${this.escapeHtml(msg.file_name || 'Fichier')}</div>
-                        <div class="file-size">${this.formatBytes(msg.file_size)}</div>
+                        <div class="file-size">${this.formatBytes(msg.file_size)} • Backblaze B2</div>
                     </div>
                 </a>
             `;
@@ -436,7 +554,6 @@ class OpenChatApp {
             <button class="copy-btn" title="Copier le texte">📋 Copier</button>
         `;
 
-        // Copy button event
         const copyBtn = row.querySelector('.copy-btn');
         if (copyBtn) {
             copyBtn.addEventListener('click', () => {
@@ -446,7 +563,7 @@ class OpenChatApp {
             });
         }
 
-        const wasAtBottom = container.scrollHeight - container.scrollTop <= container.clientHeight + 80;
+        const wasAtBottom = container.scrollHeight - container.scrollTop <= container.clientHeight + 90;
         container.appendChild(row);
 
         if (wasAtBottom || isMine) {
@@ -473,8 +590,8 @@ class OpenChatApp {
             osc.connect(gain);
             gain.connect(ctx.destination);
             osc.type = 'sine';
-            osc.frequency.setValueAtTime(587.33, ctx.currentTime); // D5
-            osc.frequency.setValueAtTime(880, ctx.currentTime + 0.08); // A5
+            osc.frequency.setValueAtTime(587.33, ctx.currentTime);
+            osc.frequency.setValueAtTime(880, ctx.currentTime + 0.08);
             gain.gain.setValueAtTime(0.12, ctx.currentTime);
             gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.25);
             osc.start();
@@ -531,8 +648,6 @@ class OpenChatApp {
     }
 }
 
-// Instantiate on DOMContentLoaded
 document.addEventListener('DOMContentLoaded', () => {
     window.openChatApp = new OpenChatApp();
 });
-

@@ -1,86 +1,254 @@
 <?php
+/**
+ * OpenChat - Application Principale
+ * Salon Public par défaut & Salons Privés instantanés
+ */
+
+declare(strict_types=1);
+
 require_once __DIR__ . '/includes/Config.php';
+require_once __DIR__ . '/includes/Database.php';
+
+// Determine initial room: defaults to 'public' if no code provided
+$requestedCode = trim($_GET['code'] ?? '');
+if (empty($requestedCode)) {
+    $requestedCode = 'public';
+}
+
+$room = Database::getOrCreateRoom($requestedCode, $requestedCode === 'public' ? 'Salon Public Général' : '');
+$isPublicRoom = ($room['code'] === 'public');
 ?>
 <!DOCTYPE html>
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OpenChat - Chat & Drop instantané sans inscription</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title><?= $isPublicRoom ? 'Salon Public - OpenChat' : 'Salon Privé : ' . htmlspecialchars($room['code']) . ' - OpenChat' ?></title>
+    
+    <!-- PWA & Meta -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#020617">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="OpenChat">
+    <link rel="apple-touch-icon" href="assets/icons/icon.svg">
+    <link rel="icon" type="image/svg+xml" href="assets/icons/icon.svg">
+
+    <!-- Styles -->
     <link rel="stylesheet" href="assets/css/app.css">
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>💬</text></svg>">
 </head>
 <body>
 
+    <!-- Header -->
     <header class="app-header">
-        <a href="index.php" class="logo-area">
-            <div class="logo-icon">💬</div>
-            <span>OpenChat</span>
-        </a>
-        <div class="header-actions">
-            <a href="https://github.com/nelson-siebi/openchat" target="_blank" rel="noopener" class="btn btn-outline btn-sm">
-                ⭐ GitHub
+        <div class="header-left">
+            <button id="btnToggleSidebar" class="btn-icon" title="Menu des Salons">
+                ☰
+            </button>
+
+            <a href="index.php" class="logo-area">
+                <div class="logo-icon">💬</div>
+                <span>OpenChat</span>
             </a>
+
+            <div class="room-badge <?= $isPublicRoom ? '' : 'private' ?>" id="currentRoomBadge">
+                <span class="pulse-dot"></span>
+                <span id="roomCodeDisplay"><?= $isPublicRoom ? '🌍 Salon Public' : '🔒 ' . htmlspecialchars($room['code']) ?></span>
+            </div>
+        </div>
+
+        <div class="header-actions">
+            <!-- PWA Install Button (Hidden until installable) -->
+            <button id="btnPwaInstall" class="btn btn-primary btn-sm" style="display: none;" title="Installer l'application">
+                📲 <span class="btn-text-hide">Installer l'app</span>
+            </button>
+
+            <button id="userNickname" class="btn btn-outline btn-sm" title="Modifier votre pseudo">
+                👤 Chargement...
+            </button>
+
+            <button id="btnShowQr" class="btn btn-outline btn-sm" title="Synchroniser avec votre téléphone (QR Code)">
+                📱 <span class="btn-text-hide">QR Code</span>
+            </button>
+
+            <button id="btnCopyShareLink" class="btn btn-outline btn-sm" title="Copier le lien direct du salon">
+                🔗 <span class="btn-text-hide">Partager</span>
+            </button>
+
+            <button id="btnToggleSound" class="btn-icon" title="Activer / Désactiver les notifications sonores">
+                🔔
+            </button>
         </div>
     </header>
 
-    <main class="hero-container">
-        <h1 class="hero-title">Partagez & discutez en 1 seconde chrono</h1>
-        <p class="hero-subtitle">
-            Aucun compte. Aucun mot de passe. Ouvrez un salon, scannez le QR code avec votre téléphone ou partagez le lien avec un ami pour vous envoyer instantanément des messages, liens et fichiers.
-        </p>
+    <!-- Overlay for mobile drawer -->
+    <div id="sidebarOverlay" class="sidebar-overlay"></div>
 
-        <div class="card-container">
-            <button id="btnCreateRoom" class="btn btn-primary" style="width: 100%; font-size: 1.1rem; padding: 0.9rem;">
-                🚀 Créer un salon instantané
+    <div class="app-container">
+        <!-- Sidebar Drawer -->
+        <aside id="appSidebar" class="sidebar">
+            <div class="sidebar-header">
+                <span class="sidebar-title">Espaces de discussion</span>
+                <button id="btnCloseSidebar" class="btn-icon" style="width: 28px; height: 28px; font-size: 0.8rem;">✕</button>
+            </div>
+
+            <div class="sidebar-content">
+                <!-- Salon Public -->
+                <div>
+                    <a href="index.php" class="room-nav-item <?= $isPublicRoom ? 'active' : '' ?>">
+                        <span class="room-nav-icon">🌍</span>
+                        <div class="room-nav-info">
+                            <div class="room-nav-name">Salon Public Général</div>
+                            <div class="room-nav-sub">Accessible à tous en direct</div>
+                        </div>
+                    </a>
+                </div>
+
+                <!-- Salons Privés Section -->
+                <div>
+                    <div style="font-size: 0.75rem; font-weight: 700; text-transform: uppercase; color: var(--text-muted); margin: 0.75rem 0.5rem 0.5rem;">
+                        Salons Privés (Éphémères)
+                    </div>
+
+                    <button id="btnOpenCreateModal" class="btn btn-secondary btn-sm" style="width: 100%; margin-bottom: 0.75rem;">
+                        ➕ Nouveau salon privé
+                    </button>
+
+                    <button id="btnOpenJoinModal" class="btn btn-outline btn-sm" style="width: 100%; margin-bottom: 0.75rem;">
+                        🔑 Rejoindre avec un code
+                    </button>
+
+                    <!-- Recent Rooms List -->
+                    <div id="recentRoomsList" style="display: flex; flex-direction: column; gap: 0.25rem;">
+                        <!-- Injected via JavaScript from localStorage -->
+                    </div>
+                </div>
+            </div>
+
+            <div class="sidebar-footer">
+                <a href="https://github.com/nelson-siebi/openchat" target="_blank" rel="noopener" class="btn btn-outline btn-sm" style="width: 100%;">
+                    ⭐ Projet Open-Source GitHub
+                </a>
+            </div>
+        </aside>
+
+        <!-- Main Chat Area -->
+        <main class="chat-main">
+            <?php if ($isPublicRoom): ?>
+                <div class="public-banner">
+                    <span>💡 <strong>Salon Public :</strong> Tout le monde peut déposer des messages, photos, liens et fichiers ici. Pour un échange confidentiel, créez un salon privé.</span>
+                </div>
+            <?php endif; ?>
+
+            <!-- Drag & Drop overlay indicator -->
+            <div id="dropzoneOverlay" class="dropzone-overlay">
+                📥 Déposez votre fichier ici pour l'envoyer instantanément !
+            </div>
+
+            <!-- Messages Stream Container -->
+            <div id="chatMessages" class="chat-messages">
+                <!-- Messages will be injected dynamically -->
+            </div>
+
+            <!-- Chat Input Footer -->
+            <footer class="chat-footer">
+                <input type="file" id="fileInput" style="display: none;">
+
+                <div class="input-bar">
+                    <button type="button" id="btnAttachFile" class="btn-icon" title="Envoyer une photo ou un fichier">
+                        📎
+                    </button>
+
+                    <textarea 
+                        id="messageInput" 
+                        placeholder="<?= $isPublicRoom ? 'Écrivez dans le salon public, collez une image (Ctrl+V)...' : 'Écrivez dans ce salon privé, collez une image (Ctrl+V)...' ?>" 
+                        rows="1"
+                    ></textarea>
+
+                    <button type="button" id="btnSendMessage" class="btn btn-primary">
+                        <span>Envoyer</span> ➤
+                    </button>
+                </div>
+            </footer>
+        </main>
+    </div>
+
+    <!-- Modal QR Code -->
+    <div id="qrModal" class="modal-overlay">
+        <div class="modal-content">
+            <button id="qrModalClose" class="modal-close">&times;</button>
+            <h2 style="font-size: 1.25rem; margin-bottom: 0.5rem; color: #fff;">Connectez votre mobile</h2>
+            <p style="color: var(--text-secondary); font-size: 0.9rem;">
+                Scannez ce QR Code avec l'appareil photo de votre smartphone pour ouvrir ce salon immédiatement.
+            </p>
+
+            <div class="qr-box">
+                <div id="qrCodeContainer"></div>
+            </div>
+
+            <p style="font-size: 0.82rem; color: var(--text-muted); word-break: break-all;" id="qrShareUrlText">
+                <?= htmlspecialchars(Config::getBaseUrl() . '/index.php?code=' . urlencode($room['code'])) ?>
+            </p>
+        </div>
+    </div>
+
+    <!-- Modal Nouveau Salon Privé -->
+    <div id="createRoomModal" class="modal-overlay">
+        <div class="modal-content">
+            <button id="createRoomModalClose" class="modal-close">&times;</button>
+            <h2 style="font-size: 1.25rem; margin-bottom: 0.5rem; color: #fff;">Créer un Salon Privé</h2>
+            <p style="color: var(--text-secondary); font-size: 0.88rem; margin-bottom: 1.5rem;">
+                Un salon privé est protégé et accessible uniquement par les personnes ayant le lien direct ou le code.
+            </p>
+
+            <button id="btnGenerateInstantRoom" class="btn btn-primary" style="width: 100%; margin-bottom: 1rem; padding: 0.85rem;">
+                ⚡ Générer un salon aléatoire
             </button>
 
-            <div class="divider">ou rejoindre un salon</div>
+            <div style="display: flex; align-items: center; margin: 1.25rem 0; color: var(--text-muted); font-size: 0.82rem;">
+                <span style="flex: 1; border-bottom: 1px solid var(--border-subtle);"></span>
+                <span style="padding: 0 0.75rem;">OU CHOISIR UN NOM</span>
+                <span style="flex: 1; border-bottom: 1px solid var(--border-subtle);"></span>
+            </div>
 
-            <form id="formJoinRoom">
+            <form id="formCustomRoom">
                 <div class="form-group">
-                    <label for="inputRoomCode" class="form-label">Code ou nom du salon :</label>
-                    <input 
-                        type="text" 
-                        id="inputRoomCode" 
-                        class="form-input" 
-                        placeholder="Ex: swift-drop-42 ou mon-salon" 
-                        required 
-                        autocomplete="off"
-                    >
+                    <label for="customRoomInput" class="form-label">Nom ou code du salon :</label>
+                    <input type="text" id="customRoomInput" class="form-input" placeholder="Ex: mon-transfert-pc ou secret-77" required autocomplete="off">
                 </div>
-                <button type="submit" class="btn btn-outline" style="width: 100%;">
-                    Rejoindre le salon ➔
+                <button type="submit" class="btn btn-secondary" style="width: 100%;">
+                    Créer / Rejoindre ce salon
                 </button>
             </form>
         </div>
+    </div>
 
-        <section class="features-grid">
-            <div class="feature-box">
-                <div class="feature-icon">⚡</div>
-                <div class="feature-title">Zéro inscription</div>
-                <div class="feature-desc">Pas de formulaire, pas d'email, pas d'attente. Vos conversations restent temporaires et privées.</div>
-            </div>
+    <!-- Modal Rejoindre un Salon avec Code -->
+    <div id="joinRoomModal" class="modal-overlay">
+        <div class="modal-content">
+            <button id="joinRoomModalClose" class="modal-close">&times;</button>
+            <h2 style="font-size: 1.25rem; margin-bottom: 0.5rem; color: #fff;">Rejoindre un Salon</h2>
+            <p style="color: var(--text-secondary); font-size: 0.88rem; margin-bottom: 1.5rem;">
+                Entrez le code du salon privé qui vous a été partagé.
+            </p>
 
-            <div class="feature-box">
-                <div class="feature-icon">📱</div>
-                <div class="feature-title">PC ↔ Mobile instantané</div>
-                <div class="feature-desc">Un QR code s'affiche dans votre salon. Scannez-le pour envoyer un lien ou une photo de votre téléphone vers votre PC.</div>
-            </div>
+            <form id="formJoinRoomCode">
+                <div class="form-group">
+                    <label for="joinRoomInput" class="form-label">Code du salon :</label>
+                    <input type="text" id="joinRoomInput" class="form-input" placeholder="Ex: swift-drop-42" required autocomplete="off">
+                </div>
+                <button type="submit" class="btn btn-primary" style="width: 100%;">
+                    Rejoindre maintenant ➔
+                </button>
+            </form>
+        </div>
+    </div>
 
-            <div class="feature-box">
-                <div class="feature-icon">📎</div>
-                <div class="feature-title">Fichiers & Presse-papier</div>
-                <div class="feature-desc">Glissez-déposez n'importe quel fichier ou collez directement des captures d'écran avec Ctrl+V.</div>
-            </div>
-        </section>
-    </main>
+    <!-- Toast Notification Container -->
+    <div class="toast-container"></div>
 
-    <footer style="text-align: center; padding: 2rem; color: var(--text-secondary); font-size: 0.85rem; margin-top: auto;">
-        OpenChat • Plateforme Open-Source & Légère • Conçue pour la simplicité absolue
-    </footer>
-
+    <!-- Scripts -->
+    <script src="assets/js/qrcode.min.js"></script>
     <script src="assets/js/app.js"></script>
 </body>
 </html>
-

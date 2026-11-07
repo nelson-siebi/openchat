@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#10b981" />
+      <stop offset="50%" stop-color="#059669" />
+      <stop offset="100%" stop-color="#2563eb" />
+    </linearGradient>
+    <linearGradient id="bubbleGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.95" />
+      <stop offset="100%" stop-color="#f0fdf4" stop-opacity="0.85" />
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="16" flood-color="#059669" flood-opacity="0.4" />
+    </filter>
+  </defs>
+
+  <!-- Background rounded squircle -->
+  <rect width="512" height="512" rx="128" fill="url(#bgGrad)" />
+
+  <!-- Inner subtle border -->
+  <rect x="8" y="8" width="496" height="496" rx="120" fill="none" stroke="rgba(255,255,255,0.2)" stroke-width="4" />
+
+  <!-- Main Chat Bubble -->
+  <g filter="url(#glow)">
+    <path d="M140 160 C140 120, 180 100, 256 100 C332 100, 372 120, 372 160 C372 230, 332 270, 256 270 C234 270, 206 264, 186 256 L130 286 L144 234 C132 216, 126 194, 140 160 Z" fill="url(#bubbleGrad)" />
+  </g>
+
+  <!-- Lightning / Fast Bolt inside Bubble -->
+  <path d="M265 140 L220 200 L252 200 L240 245 L292 185 L260 185 Z" fill="#059669" />
+
+  <!-- Secondary subtle bubble -->
+  <path d="M300 270 C340 270, 385 285, 385 325 C385 348, 370 366, 345 376 L355 405 L318 390 C306 394, 292 396, 278 396 C240 396, 210 380, 210 350" fill="none" stroke="#ffffff" stroke-width="16" stroke-linecap="round" stroke-linejoin="round" opacity="0.8" />
+</svg>

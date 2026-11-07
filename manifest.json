@@ -1,0 +1,20 @@
+{
+  "name": "OpenChat - Chat & Drop Instantané",
+  "short_name": "OpenChat",
+  "description": "Chat instantané, partage rapide de fichiers et synchronisation PC & Mobile sans inscription.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#020617",
+  "theme_color": "#020617",
+  "orientation": "any",
+  "categories": ["social", "productivity", "utilities"],
+  "icons": [
+    {
+      "src": "assets/icons/icon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
