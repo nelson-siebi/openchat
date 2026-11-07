@@ -253,12 +253,12 @@ $ogImage = Config::getBaseUrl() . '/assets/img/logo.png';
 
             <!-- Chat Input Footer -->
             <footer class="chat-footer">
-                <input type="file" id="fileInput" style="display: none;">
+                <input type="file" id="fileInput" multiple accept="image/*,video/*,audio/*,application/*" style="display: none;">
 
                 <div class="input-bar">
                     <!-- Standard Input Bar Controls -->
                     <div id="normalInputBar" style="display: flex; align-items: center; width: 100%; gap: 0.45rem;">
-                        <button type="button" id="btnAttachFile" class="btn-icon" title="Envoyer une photo, vidéo ou document">
+                        <button type="button" id="btnAttachFile" class="btn-icon" title="Envoyer une ou plusieurs photos, vidéos ou documents">
                             📎
                         </button>
 
@@ -276,8 +276,8 @@ $ogImage = Config::getBaseUrl() . '/assets/img/logo.png';
                             rows="1"
                         ></textarea>
 
-                        <button type="button" id="btnSendMessage" class="btn btn-primary" title="Envoyer le message">
-                            <span>Envoyer</span> ➤
+                        <button type="button" id="btnSendMessage" class="btn btn-primary btn-send-chat" title="Envoyer le message">
+                            <span class="btn-text-send">Envoyer</span> <span class="send-icon">➤</span>
                         </button>
                     </div>
 
@@ -489,6 +489,27 @@ $ogImage = Config::getBaseUrl() . '/assets/img/logo.png';
                     🔗 Inviter
                 </button>
             </div>
+        </div>
+    </div>
+
+    <!-- Lightbox Fullscreen Image Viewer Modal (No external redirect to B2) -->
+    <div id="imageLightboxModal" class="lightbox-overlay" style="display: none;">
+        <div class="lightbox-toolbar">
+            <span id="lightboxFileName" class="lightbox-title">Aperçu de l'image</span>
+            <div class="lightbox-actions">
+                <button type="button" class="btn-icon" id="btnLightboxDownload" title="Télécharger l'image">
+                    ⬇️
+                </button>
+                <button type="button" class="btn-icon" id="btnLightboxCopy" title="Copier le lien de l'image">
+                    📋
+                </button>
+                <button type="button" class="btn-icon" id="btnLightboxClose" title="Fermer (Échap)">
+                    ✕
+                </button>
+            </div>
+        </div>
+        <div class="lightbox-body" id="lightboxBody">
+            <img id="lightboxImage" src="" alt="Aperçu grand format">
         </div>
     </div>
 

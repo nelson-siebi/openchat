@@ -141,9 +141,9 @@ class B2Storage
         $downloadBaseUrl = $auth['downloadUrl'] . '/file/' . rawurlencode(Config::B2_BUCKET_NAME) . '/' . rawurlencode($uniqueName);
         $finalUrl = $downloadToken ? ($downloadBaseUrl . '?Authorization=' . urlencode($downloadToken)) : $downloadBaseUrl;
 
-        $isImage = in_array($extension, ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'avif'], true);
-        $isVideo = in_array($extension, ['mp4', 'mov', 'webm', 'mkv', 'avi', 'm4v'], true);
-        $isAudio = in_array($extension, ['wav', 'mp3', 'ogg', 'm4a', 'aac', 'opus'], true);
+        $isImage = str_starts_with($mimeType, 'image/') || in_array($extension, ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'avif', 'heic', 'heif', 'jfif', 'bmp'], true);
+        $isVideo = str_starts_with($mimeType, 'video/') || in_array($extension, ['mp4', 'mov', 'webm', 'mkv', 'avi', 'm4v'], true);
+        $isAudio = str_starts_with($mimeType, 'audio/') || in_array($extension, ['wav', 'mp3', 'ogg', 'm4a', 'aac', 'opus'], true);
         $type = $isImage ? 'image' : ($isVideo ? 'video' : ($isAudio ? 'audio' : 'file'));
 
         return [

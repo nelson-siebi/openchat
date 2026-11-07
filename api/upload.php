@@ -46,9 +46,12 @@ if (in_array($extension, $blockedExtensions, true)) {
     Config::jsonResponse(['success' => false, 'error' => 'Type de fichier non autorisé pour des raisons de sécurité.'], 400);
 }
 
-$isImage = in_array($extension, ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'avif'], true);
-$isVideo = in_array($extension, ['mp4', 'mov', 'webm', 'mkv', 'avi', 'm4v'], true);
-$isAudio = in_array($extension, ['wav', 'mp3', 'ogg', 'm4a', 'aac', 'opus'], true);
+$finfo = new finfo(FILEINFO_MIME_TYPE);
+$mimeType = $finfo->file($file['tmp_name']) ?: '';
+
+$isImage = str_starts_with($mimeType, 'image/') || in_array($extension, ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'avif', 'heic', 'heif', 'jfif', 'bmp'], true);
+$isVideo = str_starts_with($mimeType, 'video/') || in_array($extension, ['mp4', 'mov', 'webm', 'mkv', 'avi', 'm4v'], true);
+$isAudio = str_starts_with($mimeType, 'audio/') || in_array($extension, ['wav', 'mp3', 'ogg', 'm4a', 'aac', 'opus'], true);
 $type = $isImage ? 'image' : ($isVideo ? 'video' : ($isAudio ? 'audio' : 'file'));
 
 // 1. Try uploading to Backblaze B2 (Zero VPS Disk Space)

@@ -40,6 +40,11 @@ class OpenChatApp {
         // QR Pairing state
         this.currentPairToken = null;
 
+        // Lightbox & Link Previews
+        this.currentLightboxUrl = null;
+        this.currentLightboxName = null;
+        this.linkPreviewsCache = new Map();
+
         // Context Menu & Interaction state
         this.activeContextMenuMsg = null;
         this.lastTapTime = 0;
@@ -71,6 +76,7 @@ class OpenChatApp {
         this.setupNotifications();
         this.setupSidebar();
         this.setupHeaderActions();
+        this.setupLightbox();
         this.setupUI();
         this.setupModals();
         this.setupContextMenu();
@@ -346,7 +352,7 @@ class OpenChatApp {
 
             msgInput.addEventListener('input', () => {
                 msgInput.style.height = 'auto';
-                msgInput.style.height = Math.min(msgInput.scrollHeight, 120) + 'px';
+                msgInput.style.height = Math.min(msgInput.scrollHeight, 180) + 'px';
             });
         }
 
@@ -357,8 +363,12 @@ class OpenChatApp {
         if (attachBtn && fileInput) {
             attachBtn.addEventListener('click', () => fileInput.click());
             fileInput.addEventListener('change', (e) => {
-                if (e.target.files && e.target.files[0]) {
-                    this.setPendingFile(e.target.files[0]);
+                if (e.target.files && e.target.files.length > 0) {
+                    if (e.target.files.length === 1) {
+                        this.setPendingFile(e.target.files[0]);
+                    } else {
+                        this.uploadMultipleFiles(Array.from(e.target.files));
+                    }
                     fileInput.value = '';
                 }
             });
@@ -372,18 +382,30 @@ class OpenChatApp {
         }
     }
 
+    async uploadMultipleFiles(files) {
+        this.showToast(`Envoi groupé de ${files.length} fichiers...`);
+        for (let i = 0; i < files.length; i++) {
+            const f = files[i];
+            const isImg = f.type.startsWith('image/') || /\.(jpg|jpeg|png|gif|webp|svg|avif|heic|heif)$/i.test(f.name);
+            await this.uploadAndSendFile(f, null, isImg ? 'image' : null, '');
+        }
+    }
+
     setPendingFile(file) {
         this.pendingFile = file;
         const ctxBar = document.getElementById('activeContextBar');
         const ctxInfo = document.getElementById('activeContextInfo');
         const msgInput = document.getElementById('messageInput');
 
+        const isImg = file.type.startsWith('image/') || /\.(jpg|jpeg|png|gif|webp|svg|avif|heic|heif)$/i.test(file.name);
+        const icon = isImg ? '🖼️' : '📎';
+
         if (ctxBar && ctxInfo) {
-            ctxInfo.innerHTML = `📎 <strong>Fichier joint :</strong> ${this.escapeHtml(file.name)} (${this.formatBytes(file.size)})`;
+            ctxInfo.innerHTML = `${icon} <strong>${isImg ? 'Photo prête' : 'Fichier joint'} :</strong> ${this.escapeHtml(file.name)} (${this.formatBytes(file.size)})`;
             ctxBar.style.display = 'flex';
         }
         if (msgInput) {
-            msgInput.placeholder = 'Ajoutez une description/légende et appuyez sur Envoyer...';
+            msgInput.placeholder = 'Ajoutez une légende facultative et appuyez sur Envoyer...';
             msgInput.focus();
         }
     }
@@ -560,6 +582,143 @@ class OpenChatApp {
     }
 
     // ==========================================
+    // IN-APP IMAGE LIGHTBOX MODAL
+    // ==========================================
+    setupLightbox() {
+        const modal = document.getElementById('imageLightboxModal');
+        const btnClose = document.getElementById('btnLightboxClose');
+        const btnDownload = document.getElementById('btnLightboxDownload');
+        const btnCopy = document.getElementById('btnLightboxCopy');
+        const body = document.getElementById('lightboxBody');
+
+        if (!modal) return;
+
+        if (btnClose) {
+            btnClose.addEventListener('click', () => this.closeLightbox());
+        }
+
+        if (btnDownload) {
+            btnDownload.addEventListener('click', () => {
+                if (this.currentLightboxUrl) {
+                    this.forceDownload(this.currentLightboxUrl, this.currentLightboxName || 'photo');
+                }
+            });
+        }
+
+        if (btnCopy) {
+            btnCopy.addEventListener('click', () => {
+                if (this.currentLightboxUrl) {
+                    this.copyText(this.currentLightboxUrl, 'Lien de l\'image copié !');
+                }
+            });
+        }
+
+        if (body) {
+            body.addEventListener('click', (e) => {
+                if (e.target === body) {
+                    this.closeLightbox();
+                }
+            });
+        }
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && modal.style.display !== 'none') {
+                this.closeLightbox();
+            }
+        });
+    }
+
+    openLightbox(url, name = 'photo') {
+        const modal = document.getElementById('imageLightboxModal');
+        const img = document.getElementById('lightboxImage');
+        const title = document.getElementById('lightboxFileName');
+
+        if (!modal || !img) return;
+
+        this.currentLightboxUrl = url;
+        this.currentLightboxName = name;
+        img.src = url;
+        if (title) title.textContent = name;
+        modal.style.display = 'flex';
+    }
+
+    closeLightbox() {
+        const modal = document.getElementById('imageLightboxModal');
+        const img = document.getElementById('lightboxImage');
+        if (modal) modal.style.display = 'none';
+        if (img) img.src = '';
+        this.currentLightboxUrl = null;
+        this.currentLightboxName = null;
+    }
+
+    // ==========================================
+    // RICH LINK PREVIEW (WHATSAPP / TELEGRAM STYLE)
+    // ==========================================
+    renderRichLinkPreview(rowElement, url) {
+        if (!url || !rowElement) return;
+        const bubble = rowElement.querySelector('.message-bubble');
+        if (!bubble) return;
+
+        if (!this.linkPreviewsCache) {
+            this.linkPreviewsCache = new Map();
+        }
+
+        if (this.linkPreviewsCache.has(url)) {
+            const cached = this.linkPreviewsCache.get(url);
+            if (cached) this.insertLinkPreviewCard(bubble, cached, url);
+            return;
+        }
+
+        fetch(`api/link_preview.php?url=${encodeURIComponent(url)}`)
+            .then(res => res.json())
+            .then(data => {
+                if (data.success && (data.title || data.description || data.image)) {
+                    this.linkPreviewsCache.set(url, data);
+                    this.insertLinkPreviewCard(bubble, data, url);
+                }
+            })
+            .catch(() => {});
+    }
+
+    insertLinkPreviewCard(bubble, data, url) {
+        if (!bubble || bubble.querySelector('.link-preview-card')) return;
+        let domain = data.domain || '';
+        try {
+            if (!domain) domain = (new URL(url)).hostname;
+        } catch (e) {
+            domain = url;
+        }
+
+        const card = document.createElement('a');
+        card.className = 'link-preview-card';
+        card.href = url;
+        card.target = '_blank';
+        card.rel = 'noopener';
+
+        let imgHtml = '';
+        if (data.image) {
+            imgHtml = `<img src="${this.escapeHtml(data.image)}" class="link-preview-img" alt="${this.escapeHtml(data.title || 'Aperçu')}" loading="lazy" />`;
+        }
+
+        card.innerHTML = `
+            ${imgHtml}
+            <div class="link-preview-body">
+                <div class="link-preview-domain">🌐 ${this.escapeHtml(domain)}</div>
+                ${data.title ? `<div class="link-preview-title">${this.escapeHtml(data.title)}</div>` : ''}
+                ${data.description ? `<div class="link-preview-desc">${this.escapeHtml(data.description)}</div>` : ''}
+            </div>
+        `;
+
+        // Insert before reactions container if present
+        const reactions = bubble.querySelector('.reactions-container');
+        if (reactions) {
+            bubble.insertBefore(card, reactions);
+        } else {
+            bubble.appendChild(card);
+        }
+    }
+
+    // ==========================================
     // PRESENCE & ROOM MEMBERS
     // ==========================================
     setupPresence() {
@@ -662,10 +821,47 @@ class OpenChatApp {
         const popover = document.getElementById('emojiPopover');
         if (!btnEmoji || !popover) return;
 
-        const smileys = ['😀', '😃', '😄', '😁', '😆', '😅', '🤣', '😂', '🙂', '🙃', '😉', '😊', '😇', '🥰', '😍', '🤩', '😘', '😋', '😜', '🤪', '😎', '🥳', '😏', '🥺', '😢', '😭', '😤', '😡', '🤯', '😱', '🤔', '🤫', '🥱', '😴', '🤤', '😵', '🤐', '🤢', '🤧', '😷', '🤒', '🤕'];
-        const gestures = ['👍', '👎', '👊', '✊', '🤛', '🤜', '🤞', '✌️', '🤟', '🤘', '👌', '🤌', '🤏', '👈', '👉', '👆', '👇', '☝️', '✋', '🤚', '🖐️', '🖖', '👋', '🤙', '💪', '🙏', '🤝', '👏', '🙌', '👐'];
-        const hearts = ['❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍', '🤎', '💔', '❣️', '💕', '💞', '💓', '💗', '💖', '💘', '💝', '💟', '💌', '💋', '💐', '🌹', '🥀', '🌺', '🌸'];
-        const objects = ['🔥', '✨', '💥', '💯', '🚀', '🎉', '🎊', '🎁', '🏆', '⭐', '🌟', '⚡', '☕', '💡', '📌', '📍', '🔒', '🔓', '🔑', '🛡️', '📱', '💻', '🖥️', '📷', '✉️', '📎', '📁', '🎯', '🔔', '💬'];
+        const smileys = [
+            '😀', '😃', '😄', '😁', '😆', '😅', '🤣', '😂', '🙂', '🙃', '😉', '😊', '😇', 
+            '🥰', '😍', '🤩', '😘', '😗', '😚', '😙', '😋', '😜', '🤪', '😝', '🤑', '🤗', 
+            '🤭', '🤫', '🤔', '🤐', '🤨', '😐', '😑', '😶', '😏', '😒', '🙄', '😬', '🤥', 
+            '😌', '😔', '😪', '🤤', '😴', '😷', '🤒', '🤕', '🤢', '🤮', '🤧', '🥵', '🥶', 
+            '🥴', '😵', '🤯', '🤠', '🥳', '🥸', '😎', '🤓', '🧐', '😕', '😟', '🙁', '😮', 
+            '😯', '😲', '🥺', '😢', '😭', '😤', '😠', '😡', '🤬', '🤯', '😱', '😨', '😰', 
+            '😥', '😓', '🥱', '😴', '🤤', '😵', '🤐', '😈', '👿', '💀', '☠️', '💩', '🤡', '👻', '👽', '🤖'
+        ];
+        const gestures = [
+            '👍', '👎', '👊', '✊', '🤛', '🤜', '🤞', '✌️', '🤟', '🤘', '👌', '🤌', '🤏', 
+            '👈', '👉', '👆', '👇', '☝️', '✋', '🤚', '🖐️', '🖖', '👋', '🤙', '💪', '🦾', 
+            '🙏', '🤝', '👏', '🙌', '👐', '🫶', '🫡', '✍️', '🤳', '💅', '👂', '👃', '👀', 
+            '👁️', '🧠', '🫀', '🫁', '🫂', '🙇', '🙋', '🙆', '🙅', '🤷'
+        ];
+        const hearts = [
+            '❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍', '🤎', '💔', '❣️', '💕', '💞', 
+            '💓', '💗', '💖', '💘', '💝', '💟', '💌', '💋', '💐', '🌹', '🥀', '🌺', '🌸', 
+            '🌼', '🌻', '🌞', '🌙', '⭐', '🌟', '💫', '✨', '💥', '🔥'
+        ];
+        const objects = [
+            '🔥', '✨', '💥', '💯', '🚀', '🎉', '🎊', '🎁', '🏆', '🥇', '🥈', '🥉', '👑', 
+            '💎', '💡', '📌', '📍', '🔒', '🔓', '🔑', '🛡️', '📱', '💻', '🖥️', '📷', '✉️', 
+            '📎', '📁', '🎯', '🔔', '💬', '🛠️', '⚡', '☕', '🍵', '🍷', '🍻', '🍸', '🎧', 
+            '🎮', '🕹️', '📚', '🎨', '🎬', '🧩', '🏷️', '📦'
+        ];
+        const animals = [
+            '🐶', '🐱', '🐭', '🐹', '🐰', '🦊', '🐻', '🐼', '🐨', '🐯', '🦁', '🐮', '🐷', 
+            '🐸', '🐵', '🐔', '🐧', '🐦', '🦆', '🦅', '🦉', '🦇', '🐺', '🐗', '🐴', '🦄', 
+            '🐝', '🐛', '🦋', '🐌', '🐞', '🐜', '🐢', '🐍', '🐙', '🦑', '🦐', '🦞', '🦀', 
+            '🐡', '🐠', '🐟', '🐬', '🐳', '🐋', '🦈', '🐊', '🐅', '🐆', '🦓', '🐘', '🦏', 
+            '🦛', '🐫', '🦒', '🦘'
+        ];
+        const food = [
+            '🍏', '🍎', '🍐', '🍊', '🍋', '🍌', '🍉', '🍇', '🍓', '🫐', '🍈', '🍒', '🍑', 
+            '🥭', '🍍', '🥥', '🥝', '🍅', '🥑', '🥦', '🥬', '🥒', '🌶️', '🌽', '🥕', '🧄', 
+            '🧅', '🥔', '🍠', '🥐', '🥯', '🍞', '🥖', '🥨', '🧀', '🥚', '🍳', '🧈', '🥞', 
+            '🧇', '🥓', '🥩', '🍗', '🍖', '🌭', '🍔', '🍟', '🍕', '🥪', '🥙', '🌮', '🌯', 
+            '🥗', '🥘', '🍝', '🍜', '🍲', '🍛', '🍣', '🍱', '🥟', '🍤', '🍙', '🍧', '🍨', 
+            '🍦', '🥧', '🧁', '🍰', '🎂', '🍮', '🍭', '🍬', '🍫', '🍿', '🍩', '🍪'
+        ];
 
         const animatedStickers = [
             { name: 'Cœur Battant', file: 'assets/stickers/heart_beat.svg' },
@@ -683,6 +879,8 @@ class OpenChatApp {
                 <button type="button" class="emoji-tab-btn" data-tab="gestures">👍 Gestes</button>
                 <button type="button" class="emoji-tab-btn" data-tab="hearts">❤️ Cœurs</button>
                 <button type="button" class="emoji-tab-btn" data-tab="objects">🔥 Objets</button>
+                <button type="button" class="emoji-tab-btn" data-tab="animals">🐶 Animaux</button>
+                <button type="button" class="emoji-tab-btn" data-tab="food">🍕 Délices</button>
             </div>
             <div id="tabContent_stickers" class="stickers-grid emoji-tab-panel">
                 ${animatedStickers.map(st => `
@@ -703,6 +901,12 @@ class OpenChatApp {
             <div id="tabContent_objects" class="emoji-grid emoji-tab-panel" style="display: none;">
                 ${objects.map(em => `<button type="button" class="emoji-btn">${em}</button>`).join('')}
             </div>
+            <div id="tabContent_animals" class="emoji-grid emoji-tab-panel" style="display: none;">
+                ${animals.map(em => `<button type="button" class="emoji-btn">${em}</button>`).join('')}
+            </div>
+            <div id="tabContent_food" class="emoji-grid emoji-tab-panel" style="display: none;">
+                ${food.map(em => `<button type="button" class="emoji-btn">${em}</button>`).join('')}
+            </div>
         `;
 
         // Tab Switching
@@ -719,12 +923,12 @@ class OpenChatApp {
 
                 const activePanel = document.getElementById(`tabContent_${targetTab}`);
                 if (activePanel) {
-                    activePanel.style.display = targetTab === 'stickers' ? 'grid' : 'grid';
+                    activePanel.style.display = 'grid';
                 }
             });
         });
 
-        // Click or tap on sticker / emoji
+        // Click on sticker / emoji
         const handleEmojiClick = (e) => {
             const stickerBtn = e.target.closest('.sticker-item-btn');
             if (stickerBtn) {
@@ -736,14 +940,15 @@ class OpenChatApp {
                 return;
             }
 
-            if (e.target.classList.contains('emoji-btn')) {
+            const emojiBtn = e.target.closest('.emoji-btn');
+            if (emojiBtn) {
                 e.preventDefault();
                 e.stopPropagation();
-                const em = e.target.textContent;
+                const em = emojiBtn.textContent.trim();
                 const msgInput = document.getElementById('messageInput');
                 if (msgInput) {
-                    const start = msgInput.selectionStart;
-                    const end = msgInput.selectionEnd;
+                    const start = msgInput.selectionStart || msgInput.value.length;
+                    const end = msgInput.selectionEnd || msgInput.value.length;
                     msgInput.value = msgInput.value.substring(0, start) + em + msgInput.value.substring(end);
                     msgInput.focus();
                     msgInput.selectionStart = msgInput.selectionEnd = start + em.length;
@@ -752,7 +957,6 @@ class OpenChatApp {
         };
 
         popover.addEventListener('click', handleEmojiClick);
-        popover.addEventListener('touchend', handleEmojiClick);
 
         btnEmoji.addEventListener('click', (e) => {
             e.stopPropagation();
@@ -1212,6 +1416,16 @@ class OpenChatApp {
 
         // 1. Direct clicks on download, inline copy, reactions, more options, and double-tap
         container.addEventListener('click', (e) => {
+            // In-app Lightbox Preview for Images
+            const previewImg = e.target.closest('[data-preview-img]');
+            if (previewImg) {
+                e.preventDefault();
+                const url = previewImg.dataset.previewImg || previewImg.src;
+                const name = previewImg.dataset.imgName || 'photo';
+                this.openLightbox(url, name);
+                return;
+            }
+
             // Direct File Download Handler
             const downloadBtn = e.target.closest('[data-download-url]');
             if (downloadBtn) {
@@ -1399,7 +1613,17 @@ class OpenChatApp {
                 e.stopPropagation();
                 if (this.activeContextMenuMsg) {
                     const m = this.activeContextMenuMsg;
-                    this.copyText(m.file_url || m.content);
+                    let toCopy = '';
+                    if (m.type === 'voice' || m.type === 'audio') {
+                        toCopy = m.content && m.content !== 'Message vocal' ? m.content : (m.file_url || 'Message vocal');
+                    } else if (m.content && m.content.trim() !== '' && m.content !== m.file_name) {
+                        toCopy = m.content;
+                    } else if (m.file_url) {
+                        toCopy = m.file_url;
+                    } else {
+                        toCopy = m.content || '';
+                    }
+                    this.copyText(toCopy, 'Copié dans le presse-papier !');
                 }
                 this.closeContextMenu();
             });
@@ -1870,9 +2094,9 @@ class OpenChatApp {
         } else if (msg.type === 'image' && msg.file_url) {
             const hasCaption = msg.content && msg.content !== msg.file_name;
             contentHtml = `
-                <a href="${this.escapeHtml(msg.file_url)}" target="_blank" rel="noopener">
-                    <img src="${this.escapeHtml(msg.file_url)}" class="message-image" alt="Image" loading="lazy" />
-                </a>
+                <div class="message-image-wrapper">
+                    <img src="${this.escapeHtml(msg.file_url)}" class="message-image" alt="Image" loading="lazy" data-preview-img="${this.escapeHtml(msg.file_url)}" data-img-name="${this.escapeHtml(msg.file_name || 'photo')}" />
+                </div>
                 ${hasCaption ? `<div class="message-caption">${this.autolink(this.escapeHtml(msg.content))}</div>` : ''}
             `;
         } else if (msg.type === 'video' && msg.file_url) {
@@ -1934,6 +2158,18 @@ class OpenChatApp {
 
         const wasAtBottom = container.scrollHeight - container.scrollTop <= container.clientHeight + 90;
         container.appendChild(row);
+
+        // Auto-detect web link and render rich preview card (WhatsApp / Telegram style)
+        let detectedUrl = null;
+        if (msg.type === 'link' && msg.content && (msg.content.startsWith('http://') || msg.content.startsWith('https://'))) {
+            detectedUrl = msg.content.trim();
+        } else if (msg.content) {
+            const match = msg.content.match(/https?:\/\/[^\s<]+[^<.,:;"')\]\s]/i);
+            if (match) detectedUrl = match[0];
+        }
+        if (detectedUrl) {
+            this.renderRichLinkPreview(row, detectedUrl);
+        }
 
         // Render initial reactions if any
         if (msg.reactions) {

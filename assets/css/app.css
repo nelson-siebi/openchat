@@ -1205,12 +1205,28 @@ a:hover {
     outline: none;
     color: #fff;
     font-family: inherit;
-    font-size: 16px;
+    font-size: 0.95rem;
     resize: none;
-    height: 38px;
-    max-height: 120px;
-    padding: 0.45rem 0.25rem;
-    line-height: 1.4;
+    min-height: 42px;
+    height: 42px;
+    max-height: 180px;
+    padding: 0.55rem 0.45rem;
+    line-height: 1.45;
+}
+
+.btn-send-chat {
+    border-radius: 9999px;
+    padding: 0.55rem 1rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-weight: 700;
+    transition: transform 0.15s, background 0.15s, box-shadow 0.15s;
+    flex-shrink: 0;
+}
+
+.btn-send-chat:active {
+    transform: scale(0.95);
 }
 
 /* Voice Recording Mode UI */
@@ -1747,10 +1763,152 @@ a:hover {
     pointer-events: none;
 }
 
+/* In-app Lightbox Fullscreen Image Viewer Modal */
+.lightbox-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(2, 6, 23, 0.95);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    z-index: 1005;
+    display: flex;
+    flex-direction: column;
+    animation: fadeIn 0.18s ease-out;
+}
+
+.lightbox-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem 1.25rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(15, 23, 42, 0.85);
+    z-index: 10;
+}
+
+.lightbox-title {
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: #fff;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 60%;
+}
+
+.lightbox-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.lightbox-body {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+    overflow: hidden;
+    cursor: zoom-out;
+}
+
+.lightbox-body img {
+    max-width: 95vw;
+    max-height: 85vh;
+    object-fit: contain;
+    border-radius: 12px;
+    box-shadow: 0 25px 60px rgba(0, 0, 0, 0.85);
+    transition: transform 0.2s ease-out;
+    cursor: default;
+}
+
+/* WhatsApp / Telegram style Rich Link Preview Card */
+.link-preview-card {
+    display: flex;
+    flex-direction: column;
+    margin-top: 0.45rem;
+    background: rgba(0, 0, 0, 0.35);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    text-decoration: none !important;
+    color: inherit;
+    transition: transform 0.15s, border-color 0.15s, background 0.15s;
+    max-width: 360px;
+}
+
+.link-preview-card:hover {
+    transform: translateY(-2px);
+    border-color: var(--primary);
+    background: rgba(0, 0, 0, 0.45);
+    text-decoration: none !important;
+}
+
+.link-preview-img {
+    width: 100%;
+    max-height: 170px;
+    object-fit: cover;
+    display: block;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.link-preview-content {
+    padding: 0.6rem 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+}
+
+.link-preview-domain {
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #34d399;
+}
+
+.link-preview-title {
+    font-weight: 700;
+    font-size: 0.86rem;
+    color: #fff;
+    line-height: 1.35;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.link-preview-desc {
+    font-size: 0.76rem;
+    color: var(--text-secondary);
+    line-height: 1.38;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
 /* Responsive Rules */
 @media (max-width: 768px) {
     .btn-desktop-only {
         display: none !important;
+    }
+
+    .btn-send-chat {
+        width: 42px;
+        height: 42px;
+        padding: 0;
+        justify-content: center;
+        border-radius: 50%;
+    }
+
+    .btn-text-send {
+        display: none;
+    }
+
+    .send-icon {
+        font-size: 1.1rem;
+        margin-left: 2px;
     }
 
     .sidebar {
