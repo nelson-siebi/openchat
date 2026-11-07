@@ -28,6 +28,15 @@ class OpenChatApp {
         // QR Pairing state
         this.currentPairToken = null;
 
+        // Context Menu & Interaction state
+        this.activeContextMenuMsg = null;
+        this.lastTapTime = 0;
+        this.lastTapBubbleId = null;
+        this.longPressTimer = null;
+        this.isLongPress = false;
+        this.touchStartX = 0;
+        this.touchStartY = 0;
+
         this.init();
     }
 
@@ -50,6 +59,7 @@ class OpenChatApp {
         this.setupSidebar();
         this.setupUI();
         this.setupModals();
+        this.setupContextMenu();
         this.setupEmojiPicker();
         this.setupVoiceRecording();
         this.setupClipboardAndDrop();
@@ -765,14 +775,15 @@ class OpenChatApp {
     }
 
     // ==========================================
-    // DELEGATED EVENTS: COPY, DOWNLOAD, REPLY, REACT
+    // DELEGATED EVENTS: COPY, DOWNLOAD, LONG-PRESS, DOUBLE-TAP
     // ==========================================
     setupDelegatedEvents() {
         const container = document.getElementById('chatMessages');
         if (!container) return;
 
+        // 1. Direct clicks on download, inline copy, reactions, more options, and double-tap
         container.addEventListener('click', (e) => {
-            // 1. Direct File Download Handler
+            // Direct File Download Handler
             const downloadBtn = e.target.closest('[data-download-url]');
             if (downloadBtn) {
                 e.preventDefault();
@@ -782,35 +793,15 @@ class OpenChatApp {
                 return;
             }
 
-            // 2. Robust Message Copy Handler
-            const copyBtn = e.target.closest('[data-copy-id], [data-copy-text]');
-            if (copyBtn) {
+            // Inline Copy Button
+            const inlineCopyBtn = e.target.closest('[data-copy-text]');
+            if (inlineCopyBtn) {
                 e.preventDefault();
-                if (copyBtn.dataset.copyText) {
-                    this.copyText(copyBtn.dataset.copyText);
-                } else if (copyBtn.dataset.copyId) {
-                    const msgId = parseInt(copyBtn.dataset.copyId, 10);
-                    const msg = this.messagesById.get(msgId);
-                    if (msg) {
-                        this.copyText(msg.file_url || msg.content);
-                    }
-                }
+                this.copyText(inlineCopyBtn.dataset.copyText);
                 return;
             }
 
-            // 3. Reply Handler
-            const replyBtn = e.target.closest('[data-reply-id]');
-            if (replyBtn) {
-                e.preventDefault();
-                const msgId = parseInt(replyBtn.dataset.replyId, 10);
-                const msg = this.messagesById.get(msgId);
-                if (msg) {
-                    this.setPendingReply(msg.id, msg.sender, msg.content);
-                }
-                return;
-            }
-
-            // 4. Reaction Handler
+            // Reaction Pill on bubble edge (Click to toggle/react)
             const reactBtn = e.target.closest('[data-react-id]');
             if (reactBtn) {
                 e.preventDefault();
@@ -819,7 +810,271 @@ class OpenChatApp {
                 this.reactToMessage(msgId, emoji);
                 return;
             }
+
+            // More Options Button (···)
+            const moreBtn = e.target.closest('[data-more-id]');
+            if (moreBtn) {
+                e.preventDefault();
+                const msgId = parseInt(moreBtn.dataset.moreId, 10);
+                const row = moreBtn.closest('.message-row');
+                const bubble = row ? row.querySelector('.message-bubble') : null;
+                const rect = moreBtn.getBoundingClientRect();
+                this.openContextMenu(msgId, bubble, rect.left, rect.top);
+                return;
+            }
+
+            // Double Tap / Double Click Detection on Bubble
+            const bubble = e.target.closest('.message-bubble');
+            if (bubble) {
+                // If user interacted with an interactive child, ignore
+                if (e.target.closest('a, button, audio, video, input')) return;
+
+                const msgId = parseInt(bubble.dataset.msgId, 10);
+                const now = Date.now();
+                if (this.lastTapBubbleId === msgId && (now - this.lastTapTime) < 320) {
+                    this.handleBubbleDoubleTap(bubble, msgId);
+                    this.lastTapTime = 0;
+                    this.lastTapBubbleId = null;
+                } else {
+                    this.lastTapTime = now;
+                    this.lastTapBubbleId = msgId;
+                }
+            }
         });
+
+        // 2. Desktop Right-Click (Context Menu)
+        container.addEventListener('contextmenu', (e) => {
+            const bubble = e.target.closest('.message-bubble');
+            if (bubble) {
+                e.preventDefault();
+                const msgId = parseInt(bubble.dataset.msgId, 10);
+                this.openContextMenu(msgId, bubble, e.clientX, e.clientY);
+            }
+        });
+
+        // 3. Mobile Touch & Long-Press Handling (~380ms hold)
+        container.addEventListener('touchstart', (e) => {
+            const bubble = e.target.closest('.message-bubble');
+            if (!bubble || e.touches.length > 1) return;
+            if (e.target.closest('a, button, audio, video, input')) return;
+
+            const msgId = parseInt(bubble.dataset.msgId, 10);
+            const touch = e.touches[0];
+            this.touchStartX = touch.clientX;
+            this.touchStartY = touch.clientY;
+            this.isLongPress = false;
+
+            bubble.classList.add('is-pressing');
+
+            if (this.longPressTimer) clearTimeout(this.longPressTimer);
+            this.longPressTimer = setTimeout(() => {
+                this.isLongPress = true;
+                bubble.classList.remove('is-pressing');
+                if (navigator.vibrate) {
+                    try { navigator.vibrate(30); } catch (err) {}
+                }
+                this.openContextMenu(msgId, bubble, touch.clientX, touch.clientY);
+            }, 380);
+        }, { passive: true });
+
+        container.addEventListener('touchmove', (e) => {
+            if (!this.longPressTimer) return;
+            const touch = e.touches[0];
+            const dist = Math.hypot(touch.clientX - this.touchStartX, touch.clientY - this.touchStartY);
+            if (dist > 10) {
+                // Scrolling cancels long-press
+                clearTimeout(this.longPressTimer);
+                this.longPressTimer = null;
+                const pressing = container.querySelector('.message-bubble.is-pressing');
+                if (pressing) pressing.classList.remove('is-pressing');
+            }
+        }, { passive: true });
+
+        container.addEventListener('touchend', (e) => {
+            if (this.longPressTimer) {
+                clearTimeout(this.longPressTimer);
+                this.longPressTimer = null;
+            }
+            const pressing = container.querySelector('.message-bubble.is-pressing');
+            if (pressing) pressing.classList.remove('is-pressing');
+
+            if (this.isLongPress) {
+                this.isLongPress = false;
+                if (e.cancelable) e.preventDefault();
+            }
+        });
+
+        container.addEventListener('touchcancel', () => {
+            if (this.longPressTimer) {
+                clearTimeout(this.longPressTimer);
+                this.longPressTimer = null;
+            }
+            const pressing = container.querySelector('.message-bubble.is-pressing');
+            if (pressing) pressing.classList.remove('is-pressing');
+            this.isLongPress = false;
+        });
+    }
+
+    // ==========================================
+    // FLOATING CONTEXT MENU (ACTIONS & QUICK REACTIONS)
+    // ==========================================
+    setupContextMenu() {
+        const backdrop = document.getElementById('messageContextMenuBackdrop');
+        const menu = document.getElementById('messageContextMenu');
+        const replyBtn = document.getElementById('ctxBtnReply');
+        const copyBtn = document.getElementById('ctxBtnCopy');
+        const dlBtn = document.getElementById('ctxBtnDownload');
+
+        if (backdrop) {
+            backdrop.addEventListener('click', (e) => {
+                if (e.target === backdrop) {
+                    this.closeContextMenu();
+                }
+            });
+        }
+
+        // Close on ESC
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && menu && menu.style.display !== 'none') {
+                this.closeContextMenu();
+            }
+        });
+
+        // Quick reactions inside context menu
+        if (menu) {
+            menu.querySelectorAll('.reaction-quick-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const emoji = btn.dataset.emoji;
+                    if (this.activeContextMenuMsg && emoji) {
+                        this.reactToMessage(this.activeContextMenuMsg.id, emoji);
+                    }
+                    this.closeContextMenu();
+                });
+            });
+        }
+
+        if (replyBtn) {
+            replyBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (this.activeContextMenuMsg) {
+                    const m = this.activeContextMenuMsg;
+                    this.setPendingReply(m.id, m.sender, m.content);
+                }
+                this.closeContextMenu();
+            });
+        }
+
+        if (copyBtn) {
+            copyBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (this.activeContextMenuMsg) {
+                    const m = this.activeContextMenuMsg;
+                    this.copyText(m.file_url || m.content);
+                }
+                this.closeContextMenu();
+            });
+        }
+
+        if (dlBtn) {
+            dlBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (this.activeContextMenuMsg && this.activeContextMenuMsg.file_url) {
+                    const m = this.activeContextMenuMsg;
+                    this.forceDownload(m.file_url, m.file_name || 'fichier');
+                }
+                this.closeContextMenu();
+            });
+        }
+    }
+
+    openContextMenu(msgId, targetBubble, clickX = null, clickY = null) {
+        const msg = this.messagesById.get(parseInt(msgId, 10));
+        if (!msg) return;
+
+        this.activeContextMenuMsg = msg;
+        const menu = document.getElementById('messageContextMenu');
+        const backdrop = document.getElementById('messageContextMenuBackdrop');
+        if (!menu || !backdrop) return;
+
+        const dlBtn = document.getElementById('ctxBtnDownload');
+        const copyBtnText = document.getElementById('ctxBtnCopyText');
+
+        if (dlBtn) {
+            dlBtn.style.display = msg.file_url ? 'flex' : 'none';
+        }
+
+        if (copyBtnText) {
+            if (msg.type === 'file') copyBtnText.textContent = 'Copier le lien';
+            else if (msg.type === 'link') copyBtnText.textContent = 'Copier le lien';
+            else copyBtnText.textContent = 'Copier le texte';
+        }
+
+        backdrop.style.display = 'block';
+        menu.style.display = 'flex';
+
+        // Highlight active bubble
+        document.querySelectorAll('.message-bubble.context-active').forEach(b => b.classList.remove('context-active'));
+        if (targetBubble) {
+            targetBubble.classList.add('context-active');
+        }
+
+        // Viewport-safe dynamic positioning
+        const bubbleRect = targetBubble ? targetBubble.getBoundingClientRect() : null;
+        const menuWidth = Math.min(270, window.innerWidth - 32);
+        const menuHeight = menu.offsetHeight || 190;
+
+        let left = 16;
+        let top = 100;
+
+        if (bubbleRect) {
+            left = bubbleRect.left + (bubbleRect.width / 2) - (menuWidth / 2);
+            if (left < 16) left = 16;
+            if (left + menuWidth > window.innerWidth - 16) {
+                left = window.innerWidth - menuWidth - 16;
+            }
+
+            // Prefer placing directly above bubble; if too close to top bar, place below
+            top = bubbleRect.top - menuHeight - 14;
+            if (top < 70) {
+                top = bubbleRect.bottom + 14;
+            }
+            if (top + menuHeight > window.innerHeight - 20) {
+                top = window.innerHeight - menuHeight - 20;
+            }
+        } else if (clickX !== null && clickY !== null) {
+            left = Math.max(16, Math.min(clickX - (menuWidth / 2), window.innerWidth - menuWidth - 16));
+            top = Math.max(70, Math.min(clickY - menuHeight - 10, window.innerHeight - menuHeight - 20));
+        }
+
+        menu.style.left = `${Math.round(left)}px`;
+        menu.style.top = `${Math.round(top)}px`;
+    }
+
+    closeContextMenu() {
+        const menu = document.getElementById('messageContextMenu');
+        const backdrop = document.getElementById('messageContextMenuBackdrop');
+        if (backdrop) backdrop.style.display = 'none';
+        if (menu) menu.style.display = 'none';
+        document.querySelectorAll('.message-bubble.context-active').forEach(b => b.classList.remove('context-active'));
+        this.activeContextMenuMsg = null;
+    }
+
+    handleBubbleDoubleTap(bubbleEl, msgId) {
+        if (!bubbleEl) return;
+
+        // Visual popping heart animation
+        const heart = document.createElement('div');
+        heart.className = 'heart-pop';
+        heart.textContent = '❤️';
+        bubbleEl.appendChild(heart);
+        setTimeout(() => heart.remove(), 800);
+
+        if (navigator.vibrate) {
+            try { navigator.vibrate(30); } catch (e) {}
+        }
+
+        this.reactToMessage(msgId, '❤️');
     }
 
     // ==========================================
@@ -975,14 +1230,18 @@ class OpenChatApp {
 
         let container = row.querySelector('.reactions-container');
         if (!container) {
+            const bubble = row.querySelector('.message-bubble');
+            if (!bubble) return;
             container = document.createElement('div');
             container.className = 'reactions-container';
-            row.appendChild(container);
+            bubble.appendChild(container);
         }
 
         container.innerHTML = '';
+        let totalReactions = 0;
         for (const [emoji, count] of Object.entries(reactions)) {
             if (count > 0) {
+                totalReactions += count;
                 const pill = document.createElement('button');
                 pill.type = 'button';
                 pill.className = 'reaction-pill';
@@ -991,6 +1250,12 @@ class OpenChatApp {
                 pill.innerHTML = `<span>${emoji}</span> <span class="count">${count}</span>`;
                 container.appendChild(pill);
             }
+        }
+
+        if (totalReactions > 0) {
+            row.classList.add('has-reactions');
+        } else {
+            row.classList.remove('has-reactions');
         }
     }
 
@@ -1159,27 +1424,19 @@ class OpenChatApp {
             contentHtml = this.autolink(this.escapeHtml(msg.content));
         }
 
-        // Action chips bar (Reply, Like, Copy)
-        const actionsHtml = `
-            <div class="message-actions-bar">
-                <button type="button" class="action-chip" title="Répondre" data-reply-id="${msg.id}">↩️ Répondre</button>
-                <button type="button" class="action-chip" title="Liker" data-react-id="${msg.id}" data-react-emoji="❤️">❤️</button>
-                <button type="button" class="action-chip" title="Approuver" data-react-id="${msg.id}" data-react-emoji="👍">👍</button>
-                <button type="button" class="action-chip" title="Copier" data-copy-id="${msg.id}">📋 Copier</button>
-            </div>
-        `;
-
         row.innerHTML = `
             <div class="message-meta">
                 <strong>${this.escapeHtml(msg.sender)}</strong>
                 <span>${timeStr}</span>
             </div>
-            <div class="message-bubble">
-                ${replyHtml}
-                ${contentHtml}
+            <div class="message-bubble-wrapper">
+                <div class="message-bubble" data-msg-id="${msg.id}">
+                    ${replyHtml}
+                    ${contentHtml}
+                    <div class="reactions-container"></div>
+                </div>
+                <button type="button" class="btn-msg-more" data-more-id="${msg.id}" title="Plus d'options">···</button>
             </div>
-            ${actionsHtml}
-            <div class="reactions-container"></div>
         `;
 
         const wasAtBottom = container.scrollHeight - container.scrollTop <= container.clientHeight + 90;

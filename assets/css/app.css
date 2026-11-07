@@ -503,6 +503,18 @@ a:hover {
     text-overflow: ellipsis;
 }
 
+.message-bubble-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    position: relative;
+    max-width: 100%;
+}
+
+.message-row.mine .message-bubble-wrapper {
+    flex-direction: row-reverse;
+}
+
 .message-bubble {
     padding: 0.75rem 1rem;
     border-radius: var(--radius-lg);
@@ -513,6 +525,55 @@ a:hover {
     backdrop-filter: blur(12px);
     box-shadow: 0 3px 12px rgba(0, 0, 0, 0.2);
     border: 1px solid rgba(255, 255, 255, 0.06);
+    cursor: default;
+    transition: transform 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease;
+    -webkit-touch-callout: none;
+}
+
+.message-bubble.is-pressing {
+    transform: scale(0.97);
+    filter: brightness(1.1);
+}
+
+.message-bubble.context-active {
+    box-shadow: 0 0 0 2px var(--primary), 0 8px 24px rgba(16, 185, 129, 0.35) !important;
+}
+
+.btn-msg-more {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: rgba(15, 23, 42, 0.8);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    font-weight: 700;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.18s, background 0.15s, color 0.15s, transform 0.1s;
+    backdrop-filter: blur(8px);
+    flex-shrink: 0;
+    padding: 0;
+}
+
+.message-row:hover .btn-msg-more {
+    opacity: 1;
+}
+
+.btn-msg-more:hover {
+    background: #1e293b;
+    color: #fff;
+    border-color: rgba(255, 255, 255, 0.25);
+    transform: scale(1.1);
+}
+
+@media (hover: none) {
+    .btn-msg-more {
+        opacity: 0.45;
+    }
 }
 
 .message-row.mine .message-bubble {
@@ -746,72 +807,205 @@ a:hover {
     transform: scale(1.15);
 }
 
-/* Message Hover Actions (Reply, Like, Copy) */
-.message-actions-bar {
-    display: flex;
-    align-items: center;
-    gap: 0.25rem;
-    margin-top: 0.3rem;
-}
-
-.message-row.mine .message-actions-bar {
-    justify-content: flex-end;
-}
-
-.action-chip {
-    background: rgba(15, 23, 42, 0.85);
-    border: 1px solid var(--border-subtle);
-    color: var(--text-secondary);
-    border-radius: 9999px;
-    padding: 2px 7px;
-    font-size: 0.72rem;
-    cursor: pointer;
-    display: inline-flex;
-    align-items: center;
-    gap: 0.25rem;
-    transition: all 0.15s;
-    backdrop-filter: blur(8px);
-}
-
-.action-chip:hover {
-    background: #1e293b;
-    border-color: var(--primary);
-    color: #34d399;
-}
-
-/* Reactions Counters Container */
+/* Reactions Counters Container (WhatsApp / Telegram style overlapping bottom edge) */
 .reactions-container {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.25rem;
-    margin-top: 0.3rem;
+    display: none;
+    align-items: center;
+    gap: 3px;
+    position: absolute;
+    bottom: -11px;
+    z-index: 5;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.reactions-container:not(:empty) {
+    display: inline-flex;
 }
 
 .message-row.mine .reactions-container {
-    justify-content: flex-end;
+    right: 12px;
+}
+
+.message-row.theirs .reactions-container {
+    left: 12px;
+}
+
+.message-row.has-reactions {
+    margin-bottom: 0.85rem;
 }
 
 .reaction-pill {
-    background: rgba(15, 23, 42, 0.9);
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: #0b1120;
+    border: 1px solid rgba(255, 255, 255, 0.16);
     border-radius: 9999px;
     padding: 2px 7px;
-    font-size: 0.74rem;
+    font-size: 0.72rem;
     display: inline-flex;
     align-items: center;
     gap: 0.25rem;
     cursor: pointer;
-    transition: transform 0.15s, border-color 0.15s;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+    transition: transform 0.15s cubic-bezier(0.175, 0.885, 0.32, 1.275), background 0.15s, border-color 0.15s;
+    user-select: none;
+    color: var(--text-primary);
 }
 
 .reaction-pill:hover {
-    transform: scale(1.08);
+    transform: scale(1.15);
+    background: #1e293b;
     border-color: var(--primary);
 }
 
 .reaction-pill .count {
     font-weight: 700;
     color: #a7f3d0;
+    font-size: 0.72rem;
+}
+
+/* Double-Tap Heart Pop Animation */
+.heart-pop {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%) scale(0);
+    font-size: 2.6rem;
+    pointer-events: none;
+    z-index: 30;
+    animation: heartPopAnim 0.75s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+}
+
+@keyframes heartPopAnim {
+    0% {
+        transform: translate(-50%, -50%) scale(0);
+        opacity: 0;
+    }
+    40% {
+        transform: translate(-50%, -50%) scale(1.35);
+        opacity: 1;
+    }
+    75% {
+        transform: translate(-50%, -50%) scale(1.1);
+        opacity: 1;
+    }
+    100% {
+        transform: translate(-50%, -85%) scale(0.9);
+        opacity: 0;
+    }
+}
+
+/* Floating Message Context Menu (Long-press / Right-click / More options) */
+.msg-context-backdrop {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(2, 6, 23, 0.4);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    z-index: 1000;
+}
+
+.msg-context-menu {
+    position: fixed;
+    background: rgba(15, 23, 42, 0.96);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 18px;
+    box-shadow: 0 20px 45px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(16, 185, 129, 0.2);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    padding: 0.6rem;
+    z-index: 1001;
+    display: none;
+    flex-direction: column;
+    gap: 0.45rem;
+    animation: ctxPopIn 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+    user-select: none;
+    width: 270px;
+    max-width: calc(100vw - 32px);
+}
+
+@keyframes ctxPopIn {
+    from {
+        opacity: 0;
+        transform: scale(0.92) translateY(6px);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+    }
+}
+
+.msg-context-reactions {
+    display: flex;
+    align-items: center;
+    justify-content: space-around;
+    padding: 0.2rem 0.25rem 0.35rem;
+    gap: 0.25rem;
+}
+
+.reaction-quick-btn {
+    background: transparent;
+    border: none;
+    font-size: 1.55rem;
+    line-height: 1;
+    padding: 0.35rem;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: transform 0.18s cubic-bezier(0.175, 0.885, 0.32, 1.275), background 0.15s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.reaction-quick-btn:hover,
+.reaction-quick-btn:active {
+    transform: scale(1.35) translateY(-3px);
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.msg-context-divider {
+    height: 1px;
+    background: rgba(255, 255, 255, 0.08);
+    margin: 0.1rem 0;
+}
+
+.msg-context-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+}
+
+.msg-context-action-btn {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    padding: 0.55rem 0.75rem;
+    border-radius: 10px;
+    background: transparent;
+    border: none;
+    color: var(--text-primary);
+    font-size: 0.88rem;
+    font-weight: 500;
+    font-family: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+
+.msg-context-action-btn:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: #fff;
+}
+
+.msg-context-action-btn .ctx-icon {
+    font-size: 1.1rem;
+    width: 22px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
 }
 
 /* Active Reply & Attachment Bar above input */

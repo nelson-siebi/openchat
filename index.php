@@ -348,6 +348,35 @@ $ogImage = Config::getBaseUrl() . '/assets/img/logo.png';
         </div>
     </div>
 
+    <!-- Floating Message Context Menu (Long-press / Right-click / More options) -->
+    <div id="messageContextMenuBackdrop" class="msg-context-backdrop" style="display: none;">
+        <div id="messageContextMenu" class="msg-context-menu" role="menu">
+            <div class="msg-context-reactions">
+                <button type="button" class="reaction-quick-btn" data-emoji="❤️" title="Cœur">❤️</button>
+                <button type="button" class="reaction-quick-btn" data-emoji="👍" title="J'aime">👍</button>
+                <button type="button" class="reaction-quick-btn" data-emoji="😂" title="Rire">😂</button>
+                <button type="button" class="reaction-quick-btn" data-emoji="🔥" title="Feu">🔥</button>
+                <button type="button" class="reaction-quick-btn" data-emoji="😮" title="Wouah">😮</button>
+                <button type="button" class="reaction-quick-btn" data-emoji="🎉" title="Fête">🎉</button>
+            </div>
+            <div class="msg-context-divider"></div>
+            <div class="msg-context-actions">
+                <button type="button" class="msg-context-action-btn" id="ctxBtnReply">
+                    <span class="ctx-icon">↩️</span>
+                    <span>Répondre</span>
+                </button>
+                <button type="button" class="msg-context-action-btn" id="ctxBtnCopy">
+                    <span class="ctx-icon">📋</span>
+                    <span id="ctxBtnCopyText">Copier le message</span>
+                </button>
+                <button type="button" class="msg-context-action-btn" id="ctxBtnDownload" style="display: none;">
+                    <span class="ctx-icon">⬇️</span>
+                    <span>Télécharger le fichier</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- Toast Notification Container -->
     <div class="toast-container"></div>
 
