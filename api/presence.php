@@ -38,10 +38,10 @@ if ($method === 'POST') {
     $rawInput = file_get_contents('php://input');
     $data = json_decode($rawInput, true) ?? $_POST;
 
-    $action = trim($data['action'] ?? 'ping');
-    $roomCode = trim($data['room_code'] ?? '');
-    $username = trim($data['username'] ?? 'Invité');
-    $color = trim($data['color'] ?? '#10b981');
+    $action = trim($data['action'] ?? ($_GET['action'] ?? 'ping'));
+    $roomCode = trim($data['room_code'] ?? ($_GET['code'] ?? ''));
+    $username = trim($data['username'] ?? ($_GET['username'] ?? 'Invité'));
+    $color = trim($data['color'] ?? ($_GET['color'] ?? '#10b981'));
 
     if (empty($roomCode)) {
         Config::jsonResponse(['success' => false, 'error' => 'Code de salon manquant.'], 400);
