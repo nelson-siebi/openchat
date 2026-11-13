@@ -5,7 +5,7 @@
  * - Notification clicks focus/open the right room
  */
 
-const VERSION = 'v2.0.0';
+const VERSION = 'v2.0.1';
 const CACHE_NAME = `openchat-${VERSION}`;
 const SHARE_CACHE = 'openchat-share';
 const STATIC_ASSETS = [

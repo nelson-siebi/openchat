@@ -55,6 +55,7 @@
         {
           "name": "files",
           "accept": [
+            "*/*",
             "image/*",
             "video/*",
             "audio/*",
@@ -67,7 +68,7 @@
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             "application/vnd.ms-powerpoint",
             "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-            ".pdf", ".zip", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".txt", ".csv", ".apk"
+            ".pdf", ".zip", ".rar", ".7z", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".txt", ".csv", ".md", ".json", ".php", ".js", ".html", ".css", ".py", ".sql", ".apk", ".exe"
           ]
         }
       ]

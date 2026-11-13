@@ -63,7 +63,7 @@ class B2Storage
     /**
      * Upload a file to Backblaze B2 and return public or signed download URL
      */
-    public static function uploadFile(string $filePath, string $originalFileName): array
+    public static function uploadFile(string $filePath, string $originalFileName, ?string $forcedContentType = null): array
     {
         if (!file_exists($filePath)) {
             throw new InvalidArgumentException("Fichier introuvable: {$filePath}");
@@ -77,7 +77,7 @@ class B2Storage
 
         $fileSize = strlen($fileBytes);
         $fileSha1 = sha1($fileBytes);
-        $extension = strtolower(pathinfo($originalFileName, PATHINFO_EXTENSION));
+        $extension = substr(preg_replace('/[^a-z0-9]/', '', strtolower(pathinfo($originalFileName, PATHINFO_EXTENSION))), 0, 12);
         $uniqueName = 'chat_' . bin2hex(random_bytes(10)) . ($extension ? '.' . $extension : '');
 
         // 1. Get Upload URL
@@ -108,6 +108,8 @@ class B2Storage
         // Determine content type
         $finfo = new finfo(FILEINFO_MIME_TYPE);
         $mimeType = $finfo->buffer($fileBytes) ?: 'application/octet-stream';
+        // HTML/JS/XML are stored as plain downloads so they are never rendered as pages
+        $storedContentType = $forcedContentType ?: $mimeType;
 
         // 2. Upload file bytes via POST
         $ch = curl_init($uploadUrl);
@@ -115,7 +117,7 @@ class B2Storage
             CURLOPT_HTTPHEADER => [
                 'Authorization: ' . $uploadAuthToken,
                 'X-Bz-File-Name: ' . rawurlencode($uniqueName),
-                'Content-Type: ' . $mimeType,
+                'Content-Type: ' . $storedContentType,
                 'Content-Length: ' . $fileSize,
                 'X-Bz-Content-Sha1: ' . $fileSha1
             ],

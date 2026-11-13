@@ -11,10 +11,32 @@ require_once __DIR__ . '/B2Storage.php';
 
 class Uploader
 {
-    private const BLOCKED_EXTENSIONS = [
-        'php', 'phtml', 'php3', 'php4', 'php5', 'php7', 'php8', 'phps', 'phar', 'cgi', 'pl', 'asp', 'aspx', 'jsp',
-        'exe', 'bat', 'sh', 'com', 'cmd', 'vbs', 'ps1', 'htaccess', 'htpasswd', 'ini', 'shtml'
+    /**
+     * Every file type is accepted (code, scripts, archives, executables, markdown...).
+     *
+     * Only these extensions are written to OUR disk with their real extension, because a
+     * web server will only ever serve them as passive content. Anything else (php, html,
+     * svg, js, sh, exe, .htaccess, md...) is stored under a neutral ".bin" name, so it can
+     * never be executed or rendered from our domain. The original name is kept for display
+     * and downloads (api/download.php sends it back in Content-Disposition).
+     */
+    private const LOCAL_SAFE_EXTENSIONS = [
+        'jpg', 'jpeg', 'jfif', 'png', 'gif', 'webp', 'avif', 'bmp', 'heic', 'heif',
+        'mp4', 'mov', 'webm', 'mkv', 'm4v', '3gp', 'avi',
+        'mp3', 'wav', 'ogg', 'oga', 'm4a', 'aac', 'opus', 'flac', 'weba',
+        'pdf', 'txt', 'csv', 'rtf', 'epub',
+        'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'odt', 'ods', 'odp',
+        'zip', 'rar', '7z', 'gz', 'tgz', 'tar', 'bz2', 'xz', 'apk',
     ];
+
+    /** Types a browser would render as a page/script: sent to B2 as plain downloads. */
+    private const ACTIVE_CONTENT_EXTENSIONS = ['html', 'htm', 'xhtml', 'xht', 'shtml', 'xml', 'xsl', 'xslt', 'js', 'mjs'];
+
+    public static function isActiveContent(string $extension, string $mimeType): bool
+    {
+        return in_array($extension, self::ACTIVE_CONTENT_EXTENSIONS, true)
+            || (bool)preg_match('#^(text/html|application/xhtml|text/xml|application/xml|text/javascript|application/javascript)#i', $mimeType);
+    }
 
     public static function detectType(string $mimeType, string $extension): string
     {
@@ -58,10 +80,6 @@ class Uploader
         $originalName = mb_substr($originalName, 0, 180);
         $extension = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
 
-        if (in_array($extension, self::BLOCKED_EXTENSIONS, true)) {
-            throw new RuntimeException('Type de fichier non autorisé pour des raisons de sécurité.');
-        }
-
         $finfo = new finfo(FILEINFO_MIME_TYPE);
         $mimeType = $finfo->file($file['tmp_name']) ?: '';
         $clientMime = (string)($file['type'] ?? '');
@@ -77,7 +95,8 @@ class Uploader
         // 1. Backblaze B2 (zero VPS disk usage)
         if (B2Storage::isConfigured()) {
             try {
-                $result = B2Storage::uploadFile($file['tmp_name'], $originalName);
+                $forcedType = self::isActiveContent($extension, $mimeType) ? 'application/octet-stream' : null;
+                $result = B2Storage::uploadFile($file['tmp_name'], $originalName, $forcedType);
                 $result['type'] = $typeHint === 'audio' ? 'audio' : ($result['type'] ?? $type);
                 $result['mime'] = $mimeType;
                 return $result;
@@ -87,22 +106,37 @@ class Uploader
         }
 
         // 2. Local fallback
-        $safeUniqueName = bin2hex(random_bytes(16)) . ($extension ? '.' . preg_replace('/[^a-z0-9]/', '', $extension) : '');
+        return self::storeLocal($file['tmp_name'], $originalName, (int)$file['size'], $type, $mimeType);
+    }
+
+    /**
+     * Save on our own disk under a random name. Non-passive extensions become ".bin".
+     */
+    public static function storeLocal(string $tmpPath, string $originalName, int $size, string $type, string $mimeType): array
+    {
+        $extension = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
+        $storedExtension = in_array($extension, self::LOCAL_SAFE_EXTENSIONS, true) ? $extension : 'bin';
+        $safeUniqueName = bin2hex(random_bytes(16)) . '.' . $storedExtension;
         $targetPath = Config::getUploadsDir() . DIRECTORY_SEPARATOR . $safeUniqueName;
 
-        $moved = is_uploaded_file($file['tmp_name'])
-            ? move_uploaded_file($file['tmp_name'], $targetPath)
-            : rename($file['tmp_name'], $targetPath);
+        $moved = is_uploaded_file($tmpPath)
+            ? move_uploaded_file($tmpPath, $targetPath)
+            : rename($tmpPath, $targetPath);
 
         if (!$moved) {
             throw new RuntimeException('Impossible de sauvegarder le fichier sur le serveur.');
+        }
+
+        // A neutralised SVG can't be displayed inline any more: show it as a file
+        if ($storedExtension === 'bin' && $type === 'image') {
+            $type = 'file';
         }
 
         return [
             'success' => true,
             'file_url' => Config::getBaseUrl() . '/uploads/' . $safeUniqueName,
             'file_name' => $originalName,
-            'file_size' => (int)$file['size'],
+            'file_size' => $size,
             'type' => $type,
             'mime' => $mimeType,
         ];

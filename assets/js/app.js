@@ -1826,7 +1826,8 @@
                     const r = results[0];
                     const it = g.items[0];
                     overrides = {
-                        type: g.type,
+                        // the server may downgrade to "file" (e.g. an SVG it can't serve inline)
+                        type: r.type === 'file' && g.type !== 'audio' ? 'file' : g.type,
                         content: g.caption || r.file_name,
                         file_url: r.file_url,
                         file_name: r.file_name,
