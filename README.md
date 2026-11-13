@@ -22,7 +22,12 @@ Envoyez en 1 clic un message, un lien, une note, une capture d'écran ou un fich
   - Glissez-déposez n'importe quel fichier sur l'écran pour l'envoyer directement.
   - Collez directement vos captures d'écran depuis le presse-papier avec `Ctrl + V`.
 - 📋 **Copie rapide 1-clic** : Copiez n'importe quel message ou lien vers votre presse-papier d'un simple clic.
-- 🔔 **Sons de notification subtils** : Générés via Web Audio API (aucun fichier lourd à charger).
+- 🎙️ **Messages vocaux façon WhatsApp** : maintenir pour enregistrer, glisser à gauche pour annuler, glisser vers le haut pour verrouiller (mains libres, pause). Lecteur avec forme d'onde, déplacement au doigt, vitesse 1× / 1,5× / 2× et enchaînement automatique des vocaux.
+- 🖼️ **Photos, vidéos & documents** : aperçu avant envoi (légende, plusieurs fichiers, mode HD), albums en grille, compression automatique des photos, progression et annulation sur la bulle, renvoi en cas d'échec, visionneuse plein écran (swipe, pinch-zoom, glisser vers le bas pour fermer).
+- 💬 **Interactions** : réactions par personne, répondre (glisser la bulle vers la droite sur mobile), double-tap ❤️, appui long / clic droit, mise en forme `*gras*` `_italique_` `~barré~`, aperçus de liens, « en train d'écrire… » en direct, séparateurs de date.
+- 📲 **PWA « Partager vers OpenChat »** : une fois installée, OpenChat apparaît dans le menu Partager d'Android/ordinateur, à côté de WhatsApp ou Telegram (texte, liens, photos, fichiers). Et inversement, chaque message peut être partagé vers n'importe quelle app.
+- 🎨 **Thèmes clair / sombre / auto**, fonds d'écran et couleur de bulles personnalisables.
+- 🔔 **Notifications** système (via le service worker) et sons subtils générés par Web Audio API.
 - 🧹 **Éphémère & Respectueux de la vie privée** : Purge automatique des messages et fichiers temporaires après 24 heures.
 - 🧩 **Architecture Modulaire** : Conçu pour basculer facilement vers **Node.js + WebSockets** (voir `ARCHITECTURE.md`).
 

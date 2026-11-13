@@ -1,7 +1,7 @@
 <?php
 /**
  * OpenChat - Server-Sent Events (SSE) Stream
- * Real-time event push for instant chat updates
+ * Real-time push: new messages, reaction updates and typing indicators
  */
 
 declare(strict_types=1);
@@ -9,8 +9,8 @@ declare(strict_types=1);
 require_once __DIR__ . '/../includes/Config.php';
 require_once __DIR__ . '/../includes/Database.php';
 
-// Disable execution time limit for long-polling loop
 set_time_limit(60);
+ignore_user_abort(false);
 
 header('Content-Type: text/event-stream');
 header('Cache-Control: no-cache, no-transform');
@@ -19,48 +19,85 @@ header('X-Accel-Buffering: no'); // For Nginx / FastCGI proxies
 
 $roomCode = trim($_GET['code'] ?? '');
 $lastId = (int)($_GET['since_id'] ?? 0);
+$me = trim((string)($_GET['user'] ?? ''));
+$since = (string)($_GET['since_ts'] ?? '');
+if (!preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d+)?$/', $since)) {
+    $since = Database::nowMs();
+}
 
-if (empty($roomCode)) {
-    echo "event: error\n";
-    echo "data: " . json_encode(['error' => 'Room code required']) . "\n\n";
+// Make sure every echo reaches the client immediately
+while (ob_get_level() > 0) {
+    ob_end_flush();
+}
+ob_implicit_flush(true);
+
+function sse(string $event, array $payload, ?int $id = null): void
+{
+    if ($id !== null) {
+        echo "id: {$id}\n";
+    }
+    echo "event: {$event}\n";
+    echo 'data: ' . json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . "\n\n";
     flush();
+}
+
+if ($roomCode === '') {
+    sse('error', ['error' => 'Room code required']);
     exit;
 }
 
-// Ensure session/output buffering is closed so output streams immediately
-if (ob_get_level() > 0) {
-    ob_end_flush();
-}
+// Ask the browser to retry quickly if the connection drops
+echo "retry: 1500\n\n";
+flush();
 
 $startTime = time();
 $maxDuration = 25; // seconds before gentle reconnect
+$lastTyping = null;
+$lastPing = time();
 
 while (time() - $startTime < $maxDuration) {
     if (connection_aborted()) {
         break;
     }
 
-    $messages = Database::getMessages($roomCode, $lastId, 50);
+    $sent = false;
 
+    $messages = Database::getMessages($roomCode, $lastId, 50);
     if (!empty($messages)) {
         foreach ($messages as $msg) {
             $lastId = max($lastId, (int)$msg['id']);
         }
-        echo "id: {$lastId}\n";
-        echo "event: messages\n";
-        echo "data: " . json_encode(['messages' => $messages]) . "\n\n";
-        flush();
-    } else {
-        // Send heartbeat ping to keep connection alive
-        echo ": ping\n\n";
-        flush();
+        sse('messages', ['messages' => $messages], $lastId);
+        $sent = true;
     }
 
-    usleep(800000); // 800ms poll interval on server side
+    $updates = Database::getReactionUpdates($roomCode, $since);
+    if (!empty($updates)) {
+        $out = [];
+        foreach ($updates as $u) {
+            $since = max($since, (string)$u['updated_at']);
+            $out[] = ['id' => (int)$u['id'], 'reactions' => Database::normalizeReactions($u['reactions'])];
+        }
+        sse('reactions', ['updates' => $out, 'since_ts' => $since]);
+        $sent = true;
+    }
+
+    $typing = Database::getTyping($roomCode, $me);
+    $typingKey = implode('|', $typing);
+    if ($typingKey !== $lastTyping) {
+        $lastTyping = $typingKey;
+        sse('typing', ['users' => $typing]);
+        $sent = true;
+    }
+
+    if (!$sent && time() - $lastPing >= 10) {
+        echo ": ping\n\n";
+        flush();
+        $lastPing = time();
+    }
+
+    usleep(700000); // 700ms poll interval on server side
 }
 
 // Tell client to reconnect
-echo "event: reconnect\n";
-echo "data: {\"lastId\": {$lastId}}\n\n";
-flush();
-
+sse('reconnect', ['lastId' => $lastId, 'since_ts' => $since]);

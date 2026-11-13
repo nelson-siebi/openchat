@@ -1,5 +1,6 @@
 # OpenChat Git Ignore
 /data/*.sqlite
+/data/*.sqlite-*
 /data/*.db
 /uploads/*
 !/uploads/.gitkeep

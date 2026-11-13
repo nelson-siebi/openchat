@@ -1,6 +1,6 @@
 <?php
 /**
- * OpenChat - Presence & Room Participants API Endpoint
+ * OpenChat - Presence, Typing & Room Participants API Endpoint
  */
 
 declare(strict_types=1);
@@ -38,10 +38,10 @@ if ($method === 'POST') {
     $rawInput = file_get_contents('php://input');
     $data = json_decode($rawInput, true) ?? $_POST;
 
-    $action = trim($data['action'] ?? ($_GET['action'] ?? 'ping'));
-    $roomCode = trim($data['room_code'] ?? ($_GET['code'] ?? ''));
-    $username = trim($data['username'] ?? ($_GET['username'] ?? 'Invité'));
-    $color = trim($data['color'] ?? ($_GET['color'] ?? '#10b981'));
+    $action = trim((string)($data['action'] ?? ($_GET['action'] ?? 'ping')));
+    $roomCode = trim((string)($data['room_code'] ?? ($_GET['code'] ?? '')));
+    $username = trim((string)($data['username'] ?? ($_GET['username'] ?? 'Invité')));
+    $color = trim((string)($data['color'] ?? ($_GET['color'] ?? '#10b981')));
 
     if (empty($roomCode)) {
         Config::jsonResponse(['success' => false, 'error' => 'Code de salon manquant.'], 400);
@@ -50,6 +50,11 @@ if ($method === 'POST') {
     if ($action === 'leave') {
         Database::leavePresence($roomCode, $username);
         Config::jsonResponse(['success' => true, 'action' => 'left']);
+    }
+
+    if ($action === 'typing' || $action === 'stop_typing') {
+        Database::setTyping($roomCode, $username, $action === 'typing');
+        Config::jsonResponse(['success' => true]);
     }
 
     $presence = Database::updatePresence($roomCode, $username, $color);
@@ -61,3 +66,5 @@ if ($method === 'POST') {
         'members' => $presence['members']
     ]);
 }
+
+Config::jsonResponse(['success' => false, 'error' => 'Méthode non autorisée.'], 405);
