@@ -24,8 +24,12 @@ if ($method === 'GET') {
         Config::jsonResponse(['success' => false, 'error' => 'Code de salon manquant.'], 400);
     }
 
-    if ($roomCode !== 'public') {
-        $authUser = Database::getAuthUser();
+    $authUser = Database::getAuthUser();
+    if ($roomCode === 'public') {
+        if (!Database::hasPublicAccess($authUser)) {
+            Config::jsonResponse(['success' => false, 'error' => 'Code d\'accès requis.', 'public_access_required' => true], 403);
+        }
+    } else {
         if (!$authUser) {
             Config::jsonResponse(['success' => false, 'error' => 'Compte requis.', 'auth_required' => true], 401);
         }
@@ -61,8 +65,12 @@ if ($method === 'POST') {
         Config::jsonResponse(['success' => false, 'error' => 'Code de salon manquant.'], 400);
     }
 
-    if ($roomCode !== 'public') {
-        $authUser = Database::getAuthUser();
+    $authUser = Database::getAuthUser();
+    if ($roomCode === 'public') {
+        if (!Database::hasPublicAccess($authUser)) {
+            Config::jsonResponse(['success' => false, 'error' => 'Code d\'accès requis.', 'public_access_required' => true], 403);
+        }
+    } else {
         if (!$authUser) {
             Config::jsonResponse(['success' => false, 'error' => 'Compte requis.', 'auth_required' => true], 401);
         }

@@ -75,9 +75,14 @@ if ($action === 'logout') {
 
 if ($action === 'me') {
     $user = Database::getAuthUser();
+    $isAdmin = Database::isNelsonAdmin($user);
+    if ($user) {
+        $user['is_admin'] = $isAdmin;
+    }
     Config::jsonResponse([
         'success' => true,
         'logged_in' => $user !== null,
+        'is_admin' => $isAdmin,
         'user' => $user
     ]);
 }

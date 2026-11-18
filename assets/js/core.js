@@ -371,6 +371,15 @@
         createRoom(code = '') {
             return json('api/rooms.php', { method: 'POST', body: JSON.stringify(code ? { code } : {}) });
         },
+        verifyPublicCode(code) {
+            return json('api/rooms.php', { method: 'POST', body: JSON.stringify({ action: 'verify_public_code', code }) });
+        },
+        getPublicCode() {
+            return json('api/rooms.php', { method: 'POST', body: JSON.stringify({ action: 'get_public_code' }) });
+        },
+        setPublicCode(code) {
+            return json('api/rooms.php', { method: 'POST', body: JSON.stringify({ action: 'set_public_code', code }) });
+        },
         linkPreview(url) {
             return json(`api/link_preview.php?url=${encodeURIComponent(url)}`);
         },

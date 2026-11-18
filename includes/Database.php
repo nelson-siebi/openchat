@@ -82,6 +82,7 @@ class Database
                 email TEXT DEFAULT NULL,
                 password_hash TEXT NOT NULL,
                 avatar_color TEXT NOT NULL DEFAULT '#10b981',
+                is_admin INTEGER DEFAULT 0,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 last_login DATETIME DEFAULT CURRENT_TIMESTAMP
             );
@@ -92,6 +93,12 @@ class Database
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 expires_at DATETIME NOT NULL,
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS app_settings (
+                setting_key TEXT PRIMARY KEY,
+                setting_value TEXT NOT NULL,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
             );
 
             CREATE TABLE IF NOT EXISTS share_drafts (
@@ -147,12 +154,19 @@ class Database
                     email TEXT DEFAULT NULL,
                     password_hash TEXT NOT NULL,
                     avatar_color TEXT NOT NULL DEFAULT '#10b981',
+                    is_admin INTEGER DEFAULT 0,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     last_login DATETIME DEFAULT CURRENT_TIMESTAMP
                 );
                 CREATE INDEX IF NOT EXISTS idx_users_username ON users (username);
             ");
+        } else {
+            $userCols = $db->query("PRAGMA table_info(users)")->fetchAll(PDO::FETCH_COLUMN, 1);
+            if (!in_array('is_admin', $userCols, true)) {
+                $db->exec("ALTER TABLE users ADD COLUMN is_admin INTEGER DEFAULT 0");
+            }
         }
+
         if (!in_array('user_sessions', $tables, true)) {
             $db->exec("
                 CREATE TABLE IF NOT EXISTS user_sessions (
@@ -165,6 +179,26 @@ class Database
                 CREATE INDEX IF NOT EXISTS idx_sessions_token ON user_sessions (token, expires_at);
             ");
         }
+
+        if (!in_array('app_settings', $tables, true)) {
+            $db->exec("
+                CREATE TABLE IF NOT EXISTS app_settings (
+                    setting_key TEXT PRIMARY KEY,
+                    setting_value TEXT NOT NULL,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                );
+            ");
+        }
+
+        // Set default public_access_code if not yet configured
+        $codeCheck = $db->query("SELECT setting_value FROM app_settings WHERE setting_key = 'public_access_code' LIMIT 1")->fetchColumn();
+        if ($codeCheck === false || $codeCheck === null || $codeCheck === '') {
+            $seed = $db->prepare("INSERT OR REPLACE INTO app_settings (setting_key, setting_value, updated_at) VALUES ('public_access_code', 'openchat2026', CURRENT_TIMESTAMP)");
+            $seed->execute();
+        }
+
+        // Automatically promote any existing Nelson account to admin
+        $db->exec("UPDATE users SET is_admin = 1 WHERE LOWER(username) IN ('nelson', 'nelson pro', 'nelsonpro', 'nelson-pro', 'nelsonsiebi', 'nelson siebi', 'nelsontest') OR LOWER(email) LIKE 'nelson%'");
 
         $db->exec("CREATE INDEX IF NOT EXISTS idx_messages_room_updated ON messages (room_code, updated_at)");
     }
@@ -797,15 +831,17 @@ class Database
         }
 
         $hash = password_hash($password, PASSWORD_DEFAULT);
+        $isAdmin = self::isNelsonAdmin(['username' => $username, 'email' => $email]) ? 1 : 0;
         $stmt = $db->prepare("
-            INSERT INTO users (username, email, password_hash, avatar_color, created_at, last_login)
-            VALUES (:u, :e, :p, :c, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            INSERT INTO users (username, email, password_hash, avatar_color, is_admin, created_at, last_login)
+            VALUES (:u, :e, :p, :c, :adm, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
         ");
         $stmt->execute([
             ':u' => $username,
             ':e' => !empty($email) ? trim($email) : null,
             ':p' => $hash,
-            ':c' => $avatarColor
+            ':c' => $avatarColor,
+            ':adm' => $isAdmin
         ]);
 
         $userId = (int)$db->lastInsertId();
@@ -818,7 +854,8 @@ class Database
                 'id' => $userId,
                 'username' => $username,
                 'avatar_color' => $avatarColor,
-                'email' => $email
+                'email' => $email,
+                'is_admin' => $isAdmin === 1
             ]
         ];
     }
@@ -840,7 +877,12 @@ class Database
         }
 
         $userId = (int)$user['id'];
-        $db->prepare("UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = :id")->execute([':id' => $userId]);
+        $isAdmin = self::isNelsonAdmin($user);
+        if ($isAdmin && empty($user['is_admin'])) {
+            $db->prepare("UPDATE users SET is_admin = 1, last_login = CURRENT_TIMESTAMP WHERE id = :id")->execute([':id' => $userId]);
+        } else {
+            $db->prepare("UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = :id")->execute([':id' => $userId]);
+        }
         $token = self::createSession($userId);
 
         return [
@@ -850,7 +892,8 @@ class Database
                 'id' => $userId,
                 'username' => $user['username'],
                 'avatar_color' => $user['avatar_color'] ?? '#10b981',
-                'email' => $user['email']
+                'email' => $user['email'],
+                'is_admin' => $isAdmin
             ]
         ];
     }
@@ -873,7 +916,7 @@ class Database
 
         $db = self::getConnection();
         $stmt = $db->prepare("
-            SELECT u.id, u.username, u.email, u.avatar_color, u.created_at
+            SELECT u.id, u.username, u.email, u.avatar_color, u.is_admin, u.created_at
             FROM user_sessions s
             JOIN users u ON u.id = s.user_id
             WHERE s.token = :t AND s.expires_at > CURRENT_TIMESTAMP
@@ -881,6 +924,9 @@ class Database
         ");
         $stmt->execute([':t' => $token]);
         $row = $stmt->fetch();
+        if ($row) {
+            $row['is_admin'] = (int)($row['is_admin'] ?? 0) === 1 || self::isNelsonAdmin($row);
+        }
         return $row ?: null;
     }
 
@@ -917,6 +963,114 @@ class Database
         }
 
         return null;
+    }
+
+    public static function isNelsonAdmin(?array $user = null): bool
+    {
+        if ($user === null) {
+            $user = self::getAuthUser();
+        }
+        if (!$user) {
+            return false;
+        }
+
+        if (!empty($user['is_admin'])) {
+            return true;
+        }
+
+        $uname = strtolower(trim((string)($user['username'] ?? '')));
+        $email = strtolower(trim((string)($user['email'] ?? '')));
+
+        $nelsonNames = ['nelson', 'nelson pro', 'nelsonpro', 'nelson-pro', 'nelsonsiebi', 'nelson siebi', 'nelsontest'];
+        if (in_array($uname, $nelsonNames, true) || str_starts_with($email, 'nelson')) {
+            if (!empty($user['id'])) {
+                try {
+                    $db = self::getConnection();
+                    $db->prepare("UPDATE users SET is_admin = 1 WHERE id = :id")->execute([':id' => $user['id']]);
+                } catch (\Throwable $e) {}
+            }
+            return true;
+        }
+
+        return false;
+    }
+
+    public static function getSetting(string $key, ?string $default = null): ?string
+    {
+        $db = self::getConnection();
+        $stmt = $db->prepare("SELECT setting_value FROM app_settings WHERE setting_key = :k LIMIT 1");
+        $stmt->execute([':k' => $key]);
+        $val = $stmt->fetchColumn();
+        return ($val !== false && $val !== null) ? (string)$val : $default;
+    }
+
+    public static function setSetting(string $key, string $value): bool
+    {
+        $db = self::getConnection();
+        $stmt = $db->prepare("
+            INSERT INTO app_settings (setting_key, setting_value, updated_at)
+            VALUES (:k, :v, CURRENT_TIMESTAMP)
+            ON CONFLICT(setting_key) DO UPDATE SET setting_value = :v, updated_at = CURRENT_TIMESTAMP
+        ");
+        return $stmt->execute([':k' => $key, ':v' => $value]);
+    }
+
+    public static function getPublicAccessCode(): string
+    {
+        $code = self::getSetting('public_access_code');
+        if ($code === null || $code === '') {
+            $code = 'openchat2026';
+            self::setSetting('public_access_code', $code);
+        }
+        return $code;
+    }
+
+    public static function setPublicAccessCode(string $newCode): bool
+    {
+        $newCode = trim($newCode);
+        if ($newCode === '') {
+            return false;
+        }
+        return self::setSetting('public_access_code', $newCode);
+    }
+
+    public static function getPublicAccessHash(string $code): string
+    {
+        return hash('sha256', 'openchat_public_salt_' . $code);
+    }
+
+    public static function hasPublicAccess(?array $authUser = null): bool
+    {
+        if (self::isNelsonAdmin($authUser)) {
+            return true;
+        }
+
+        $currentCode = self::getPublicAccessCode();
+        $validHash = self::getPublicAccessHash($currentCode);
+
+        // 1. Check Cookie
+        $cookieHash = trim((string)($_COOKIE['openchat_public_access'] ?? ''));
+        if ($cookieHash !== '' && hash_equals($validHash, $cookieHash)) {
+            return true;
+        }
+
+        // 2. Check HTTP headers (for API / SSE calls)
+        $headerCode = trim((string)($_SERVER['HTTP_X_ACCESS_CODE'] ?? ''));
+        if ($headerCode !== '' && hash_equals($currentCode, $headerCode)) {
+            return true;
+        }
+        $headerHash = trim((string)($_SERVER['HTTP_X_PUBLIC_ACCESS'] ?? ''));
+        if ($headerHash !== '' && hash_equals($validHash, $headerHash)) {
+            return true;
+        }
+
+        // 3. Check query/body param
+        $paramCode = trim((string)($_REQUEST['public_access_code'] ?? ''));
+        if ($paramCode !== '' && hash_equals($currentCode, $paramCode)) {
+            return true;
+        }
+
+        return false;
     }
 
     public static function purgeOldData(): void

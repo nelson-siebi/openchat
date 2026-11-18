@@ -10,6 +10,8 @@ require_once __DIR__ . '/includes/Config.php';
 require_once __DIR__ . '/includes/Database.php';
 
 $authUser = Database::getAuthUser();
+$isNelsonAdmin = Database::isNelsonAdmin($authUser);
+$hasPublicAccess = Database::hasPublicAccess($authUser);
 
 // Determine initial room: defaults to 'public' if no code provided
 $requestedCode = Database::sanitizeCode((string)($_GET['code'] ?? ''));
@@ -21,6 +23,7 @@ $room = Database::getOrCreateRoom($requestedCode, $requestedCode === 'public' ? 
 $isPublicRoom = ($room['code'] === 'public');
 $roomCode = (string)$room['code'];
 $authRequired = (!$isPublicRoom && !$authUser);
+$publicAccessRequired = ($isPublicRoom && !$hasPublicAccess);
 
 $pageTitle = $isPublicRoom ? 'OpenChat - Chat & Partage Instantané Sans Inscription' : 'Salon ' . $roomCode . ' - OpenChat';
 $pageDesc = 'Partagez en 1 seconde des messages, liens, photos, vocaux et fichiers entre PC et smartphone ou avec vos amis, sans compte ni mot de passe.';
@@ -137,6 +140,10 @@ $e = static fn(string $s): string => htmlspecialchars($s, ENT_QUOTES, 'UTF-8');
         <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9.5"/><path d="M12 2.5a14.5 14.5 0 0 0 0 19 14.5 14.5 0 0 0 0-19M2.5 12h19"/></symbol>
         <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6"/></symbol>
         <symbol id="i-edit" viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></symbol>
+        <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></symbol>
+        <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></symbol>
+        <symbol id="i-eye-off" viewBox="0 0 24 24"><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68M6.61 6.61A13.526 13.526 0 0 0 2 12s3.5 7 10 7a9.74 9.74 0 0 0 5.39-1.61M2 2l20 20"/></symbol>
+        <symbol id="i-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></symbol>
         <symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
         <symbol id="i-chevron-up" viewBox="0 0 24 24"><path d="m18 15-6-6-6 6"/></symbol>
         <symbol id="i-chevron-left" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
@@ -237,6 +244,10 @@ $e = static fn(string $s): string => htmlspecialchars($s, ENT_QUOTES, 'UTF-8');
                 <svg class="ic ic-sm"><use href="#i-user"/></svg>
                 <span id="btnSidebarAuthText"><?= $authUser ? 'Mon compte' : 'Connexion / Inscription' ?></span>
             </button>
+            <button type="button" class="btn btn-soft btn-sm btn-block" id="btnAdminPublicCode" style="margin-top: 6px; <?= $isNelsonAdmin ? '' : 'display:none;' ?>">
+                <svg class="ic ic-sm" style="color: #f59e0b;"><use href="#i-key"/></svg>
+                <span>Code Public (Nelson Pro)</span>
+            </button>
             <div class="sidebar-foot-row">
                 <button type="button" class="btn btn-soft btn-sm" id="btnInstallSidebar" hidden>
                     <svg class="ic ic-sm"><use href="#i-install"/></svg> Installer l'app
@@ -271,6 +282,9 @@ $e = static fn(string $s): string => htmlspecialchars($s, ENT_QUOTES, 'UTF-8');
             </button>
 
             <div class="header-actions">
+                <button type="button" class="icon-btn" id="btnHeaderAdminCode" title="Gérer le code d'accès public" style="<?= $isNelsonAdmin ? '' : 'display:none;' ?>">
+                    <svg class="ic" style="color: #f59e0b;"><use href="#i-key"/></svg>
+                </button>
                 <button type="button" class="icon-btn" id="btnInstallHeader" title="Installer l'application" hidden>
                     <svg class="ic"><use href="#i-install"/></svg>
                 </button>
@@ -282,6 +296,7 @@ $e = static fn(string $s): string => htmlspecialchars($s, ENT_QUOTES, 'UTF-8');
                         <svg class="ic"><use href="#i-more"/></svg>
                     </button>
                     <div class="dropdown" id="headerMenu" role="menu">
+                        <button type="button" class="dropdown-item" id="menuAdminPublicCode" style="<?= $isNelsonAdmin ? '' : 'display:none;' ?>"><svg class="ic" style="color: #f59e0b;"><use href="#i-key"/></svg> Code Public (Nelson Pro)</button>
                         <button type="button" class="dropdown-item" data-open="inviteModal"><svg class="ic"><use href="#i-qr"/></svg> Connecter un appareil</button>
                         <button type="button" class="dropdown-item" id="menuCopyLink"><svg class="ic"><use href="#i-link"/></svg> Copier le lien du salon</button>
                         <button type="button" class="dropdown-item" data-open="membersModal"><svg class="ic"><use href="#i-users"/></svg> Membres <span class="dropdown-badge" id="menuOnlineCount">1</span></button>
@@ -795,6 +810,85 @@ $e = static fn(string $s): string => htmlspecialchars($s, ENT_QUOTES, 'UTF-8');
     </div>
 </div>
 
+<!-- ============================ PUBLIC ROOM ACCESS MODAL ============================ -->
+<div class="modal" id="publicAccessModal" role="dialog" aria-modal="true" aria-labelledby="publicAccessTitle" <?= $publicAccessRequired ? '' : 'hidden' ?>>
+    <div class="modal-card" style="text-align: center; max-width: 420px;">
+        <div style="width: 58px; height: 58px; border-radius: 50%; background: linear-gradient(135deg, rgba(99, 102, 241, 0.2), rgba(168, 85, 247, 0.25)); border: 1px solid rgba(99, 102, 241, 0.4); display: flex; align-items: center; justify-content: center; margin: 0 auto 14px; color: #818cf8; box-shadow: 0 4px 20px rgba(99, 102, 241, 0.15);">
+            <svg class="ic" style="width: 28px; height: 28px;"><use href="#i-shield"/></svg>
+        </div>
+        <h2 id="publicAccessTitle" style="font-size: 1.35rem; font-weight: 800; margin: 0 0 6px;">Salon Public Protégé</h2>
+        <p class="modal-text" style="margin: 0 auto 16px; font-size: 0.92rem; color: var(--text-2); line-height: 1.45;">
+            L'accès à ce salon est protégé par un code d'accès. Saisissez le mot de passe pour participer à la discussion.
+        </p>
+
+        <form id="formPublicAccess" autocomplete="off" style="margin-top: 8px;">
+            <div class="form-group" style="position: relative;">
+                <input type="password" id="inputPublicAccess" class="input" placeholder="Mot de passe du salon" required style="padding-right: 42px; text-align: center; font-size: 1.05rem; letter-spacing: 0.05em;" autocomplete="current-password">
+                <button type="button" id="btnTogglePublicPass" class="icon-btn" style="position: absolute; right: 6px; top: 50%; transform: translateY(-50%); opacity: 0.7;" title="Afficher/Masquer">
+                    <svg class="ic ic-sm" id="iconTogglePublicPass"><use href="#i-eye"/></svg>
+                </button>
+            </div>
+
+            <div class="auth-error" id="publicAccessError" style="display:none; color: #ef4444; font-size: 0.85rem; margin-top: 10px; font-weight: 500; padding: 6px 10px; background: rgba(239, 68, 68, 0.1); border-radius: 8px;"></div>
+
+            <div class="modal-actions" style="margin-top: 18px;">
+                <button type="submit" class="btn btn-primary btn-block" id="btnSubmitPublicAccess">
+                    <span>Déverrouiller et entrer</span>
+                    <svg class="ic ic-sm"><use href="#i-arrow-right"/></svg>
+                </button>
+            </div>
+        </form>
+
+        <div style="margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); font-size: 0.85rem; color: var(--text-3);">
+            <span>Vous êtes Nelson Pro ?</span>
+            <button type="button" class="link-btn" id="btnNelsonLoginLink" style="margin-left: 4px; font-weight: 600; color: var(--accent);">Se connecter sans code</button>
+        </div>
+    </div>
+</div>
+
+<!-- ============================ ADMIN PUBLIC CODE MODAL ============================ -->
+<div class="modal" id="adminCodeModal" role="dialog" aria-modal="true" aria-labelledby="adminCodeTitle" hidden>
+    <div class="modal-card" style="max-width: 440px;">
+        <div class="modal-head">
+            <h2 id="adminCodeTitle" style="display: flex; align-items: center; gap: 8px;">
+                <svg class="ic" style="color: #f59e0b;"><use href="#i-key"/></svg>
+                <span>Code d'accès Public</span>
+            </h2>
+            <button type="button" class="icon-btn" data-close aria-label="Fermer"><svg class="ic"><use href="#i-x"/></svg></button>
+        </div>
+
+        <p class="modal-text" style="font-size: 0.88rem; color: var(--text-2); margin-bottom: 14px;">
+            Espace administrateur <strong>Nelson Pro</strong> : vous pouvez consulter ou redéfinir le mot de passe d'accès que les autres utilisateurs doivent obligatoirement saisir pour rejoindre le salon public. Seul vous pouvez entrer sans code.
+        </p>
+
+        <div style="background: var(--bg-hover); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between;">
+            <div>
+                <div style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-3); font-weight: 600;">Code actuel</div>
+                <div id="adminCurrentCodeDisplay" style="font-size: 1.15rem; font-weight: 800; color: var(--accent); letter-spacing: 0.05em; margin-top: 2px;">Chargement…</div>
+            </div>
+            <button type="button" class="btn btn-soft btn-xs" id="btnCopyAdminCode" title="Copier le code">
+                <svg class="ic ic-sm"><use href="#i-copy"/></svg> <span>Copier</span>
+            </button>
+        </div>
+
+        <form id="formAdminSetCode" autocomplete="off">
+            <div class="form-group">
+                <label for="inputAdminNewCode">Nouveau code d'accès</label>
+                <input type="text" id="inputAdminNewCode" class="input" placeholder="Ex: openchat2026" required minlength="3" style="font-size: 1rem; font-weight: 600;">
+            </div>
+
+            <div class="auth-error" id="adminCodeError" style="display:none; color: #ef4444; font-size: 0.85rem; margin-top: 8px; font-weight: 500; padding: 6px 10px; background: rgba(239, 68, 68, 0.1); border-radius: 8px;"></div>
+
+            <div class="modal-actions" style="margin-top: 16px;">
+                <button type="button" class="btn btn-soft" data-close>Annuler</button>
+                <button type="submit" class="btn btn-primary" id="btnSubmitAdminCode">
+                    <span>Mettre à jour le code</span>
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <div class="toasts" id="toasts" aria-live="polite"></div>
 
 <script>
@@ -805,7 +899,9 @@ $e = static fn(string $s): string => htmlspecialchars($s, ENT_QUOTES, 'UTF-8');
         maxFileMb: <?= (int)Config::MAX_FILE_SIZE_MB ?>,
         retentionHours: <?= (int)Config::MESSAGE_RETENTION_HOURS ?>,
         authRequired: <?= $authRequired ? 'true' : 'false' ?>,
-        authUser: <?= json_encode($authUser) ?>
+        authUser: <?= json_encode($authUser) ?>,
+        isNelsonAdmin: <?= $isNelsonAdmin ? 'true' : 'false' ?>,
+        publicAccessRequired: <?= $publicAccessRequired ? 'true' : 'false' ?>
     };
 </script>
 <script src="<?= $asset('assets/js/qrcode.min.js') ?>" defer></script>

@@ -42,6 +42,9 @@
 
             this.authUser = CFG.authUser || null;
             this.authRequired = !!CFG.authRequired;
+            this.isNelsonAdmin = !!CFG.isNelsonAdmin;
+            this.publicAccessRequired = !!CFG.publicAccessRequired;
+            this.hasStartedLoading = false;
 
             this.username = (this.authUser && this.authUser.username) || store.get('openchat_username') || this.makeName();
             this.myNames = new Set(store.json('openchat_my_names', []));
@@ -170,17 +173,25 @@
             this.setupNotifBanner();
             this.restoreDraft();
             this.updateActionMode();
+            this.bindPublicAccess();
+            this.bindAdminPublicCode();
 
-            this.loadInitial().then(() => {
-                this.connect();
-                this.handleIncomingShare();
-            });
-            this.startPresence();
+            if (!this.authRequired && !this.publicAccessRequired) {
+                this.hasStartedLoading = true;
+                this.loadInitial().then(() => {
+                    this.connect();
+                    this.handleIncomingShare();
+                });
+                this.startPresence();
+            }
+
             this.checkPairing();
             this.handleUrlActions();
 
             if (this.authRequired) {
                 setTimeout(() => this.openAuthModal('Veuillez vous connecter pour accéder à ce salon privé.', true), 300);
+            } else if (this.publicAccessRequired) {
+                setTimeout(() => this.openModal('publicAccessModal'), 300);
             }
         }
 
@@ -224,6 +235,10 @@
 
         closeOverlay(name) {
             return new Promise((resolve) => {
+                if (name === 'publicAccessModal' && this.publicAccessRequired) {
+                    resolve();
+                    return;
+                }
                 const idx = this.overlays.map((o) => o.name).lastIndexOf(name);
                 if (idx === -1) {
                     resolve();
@@ -485,7 +500,10 @@
 
             $$('.modal').forEach((modal) => {
                 modal.addEventListener('click', (e) => {
-                    if (e.target === modal) this.closeOverlay(modal.id);
+                    if (e.target === modal) {
+                        if (modal.id === 'publicAccessModal' && this.publicAccessRequired) return;
+                        this.closeOverlay(modal.id);
+                    }
                 });
                 this.bindSheetDrag(modal);
             });
@@ -3282,11 +3300,15 @@
                     try {
                         await api.auth.logout();
                         this.authUser = null;
+                        this.isNelsonAdmin = false;
+                        $$('#btnAdminPublicCode, #btnHeaderAdminCode, #menuAdminPublicCode').forEach((el) => el.style.display = 'none');
                         this.renderProfile();
                         this.closeOverlay('authModal');
                         toast('Déconnecté', { type: 'ok' });
                         if (!this.isPublic) {
                             setTimeout(() => { location.href = 'index.php?code=public'; }, 300);
+                        } else {
+                            setTimeout(() => { location.reload(); }, 300);
                         }
                     } catch (e) {
                         toast('Erreur lors de la déconnexion', { type: 'err' });
@@ -3321,14 +3343,31 @@
                             store.set('openchat_username', this.username);
                             store.set('openchat_avatar_color', this.avatarColor);
                             this.myNames.add(this.username);
+
+                            const uname = (res.user.username || '').toLowerCase();
+                            const isNelson = !!res.is_admin || !!(res.user && res.user.is_admin) || ['nelson', 'nelson pro', 'nelsonpro', 'nelson-pro', 'nelsonsiebi', 'nelson siebi', 'nelsontest'].includes(uname);
+                            if (isNelson) {
+                                this.isNelsonAdmin = true;
+                                this.publicAccessRequired = false;
+                                $$('#btnAdminPublicCode, #btnHeaderAdminCode, #menuAdminPublicCode').forEach((el) => el.style.display = '');
+                            }
+
                             this.renderProfile();
                             toast(currentTab === 'register' ? 'Compte créé avec succès 🎉' : 'Connexion réussie 👋', { type: 'ok' });
                             this.closeOverlay('authModal');
 
-                            if (this.authRequired) {
+                            if (this.authRequired || (this.isPublic && this.publicAccessRequired)) {
                                 this.authRequired = false;
-                                this.loadInitial();
-                                this.connect();
+                                if (this.isNelsonAdmin) {
+                                    this.publicAccessRequired = false;
+                                    this.closeOverlay('publicAccessModal');
+                                }
+                            }
+
+                            if (!this.publicAccessRequired && !this.authRequired && !this.hasStartedLoading) {
+                                this.hasStartedLoading = true;
+                                this.loadInitial().then(() => this.connect());
+                                this.startPresence();
                             }
                         }
                     } catch (err) {
@@ -3339,6 +3378,166 @@
                     } finally {
                         btnSubmit.disabled = false;
                         btnSubmit.textContent = currentTab === 'register' ? 'Créer mon compte' : 'Se connecter';
+                    }
+                });
+            }
+        }
+
+        bindPublicAccess() {
+            const form = $('#formPublicAccess');
+            const input = $('#inputPublicAccess');
+            const btnToggle = $('#btnTogglePublicPass');
+            const iconToggle = $('#iconTogglePublicPass');
+            const errEl = $('#publicAccessError');
+            const btnSubmit = $('#btnSubmitPublicAccess');
+            const btnNelsonLogin = $('#btnNelsonLoginLink');
+
+            if (btnToggle && input) {
+                btnToggle.addEventListener('click', () => {
+                    const isPass = input.type === 'password';
+                    input.type = isPass ? 'text' : 'password';
+                    if (iconToggle) {
+                        const use = iconToggle.querySelector('use');
+                        if (use) use.setAttribute('href', isPass ? '#i-eye-off' : '#i-eye');
+                    }
+                });
+            }
+
+            if (btnNelsonLogin) {
+                btnNelsonLogin.addEventListener('click', () => {
+                    this.openAuthModal('Connectez-vous en tant que Nelson Pro pour accéder directement sans mot de passe.');
+                });
+            }
+
+            if (form && input) {
+                form.addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    const code = input.value.trim();
+                    if (!code) return;
+
+                    if (errEl) errEl.style.display = 'none';
+                    btnSubmit.disabled = true;
+                    btnSubmit.innerHTML = '<span class="spinner" style="width:16px;height:16px;margin:auto;"></span>';
+
+                    try {
+                        const res = await OC.api.verifyPublicCode(code);
+                        if (res && res.success) {
+                            this.publicAccessRequired = false;
+                            this.closeOverlay('publicAccessModal');
+                            OC.sound.success();
+                            toast('Accès au salon public autorisé !', { type: 'ok' });
+
+                            if (!this.hasStartedLoading) {
+                                this.hasStartedLoading = true;
+                                this.loadInitial().then(() => {
+                                    this.connect();
+                                    this.handleIncomingShare();
+                                });
+                                this.startPresence();
+                            }
+                        }
+                    } catch (err) {
+                        OC.sound.cancel();
+                        if (errEl) {
+                            errEl.textContent = err.message || 'Code d\'accès incorrect. Veuillez réessayer.';
+                            errEl.style.display = 'block';
+                        }
+                        input.select();
+                        input.focus();
+                    } finally {
+                        btnSubmit.disabled = false;
+                        btnSubmit.innerHTML = '<span>Déverrouiller et entrer</span><svg class="ic ic-sm"><use href="#i-arrow-right"/></svg>';
+                    }
+                });
+            }
+        }
+
+        bindAdminPublicCode() {
+            const currentDisplay = $('#adminCurrentCodeDisplay');
+            const btnCopy = $('#btnCopyAdminCode');
+            const form = $('#formAdminSetCode');
+            const inputNew = $('#inputAdminNewCode');
+            const errEl = $('#adminCodeError');
+            const btnSubmit = $('#btnSubmitAdminCode');
+
+            const openAdminCode = async () => {
+                if (!this.isNelsonAdmin) {
+                    toast('Accès réservé exclusivement à Nelson Pro.', { type: 'err' });
+                    return;
+                }
+                if (currentDisplay) currentDisplay.textContent = 'Chargement…';
+                if (errEl) errEl.style.display = 'none';
+                if (inputNew) inputNew.value = '';
+                this.openModal('adminCodeModal');
+
+                try {
+                    const res = await OC.api.getPublicCode();
+                    if (res && res.success && res.code) {
+                        this.adminCurrentCode = res.code;
+                        if (currentDisplay) currentDisplay.textContent = res.code;
+                        if (inputNew) inputNew.placeholder = res.code;
+                    }
+                } catch (err) {
+                    if (currentDisplay) currentDisplay.textContent = 'Erreur';
+                    if (errEl) {
+                        errEl.textContent = err.message || 'Impossible de récupérer le code actuel';
+                        errEl.style.display = 'block';
+                    }
+                }
+            };
+
+            const btnSidebar = $('#btnAdminPublicCode');
+            const btnHeader = $('#btnHeaderAdminCode');
+            const menuDropdown = $('#menuAdminPublicCode');
+
+            if (btnSidebar) btnSidebar.addEventListener('click', openAdminCode);
+            if (btnHeader) btnHeader.addEventListener('click', openAdminCode);
+            if (menuDropdown) menuDropdown.addEventListener('click', openAdminCode);
+
+            if (btnCopy) {
+                btnCopy.addEventListener('click', () => {
+                    const code = (currentDisplay && currentDisplay.textContent) || this.adminCurrentCode;
+                    if (code && code !== 'Chargement…' && code !== 'Erreur') {
+                        OC.copy(code, 'Code d\'accès copié !');
+                    }
+                });
+            }
+
+            if (form && inputNew) {
+                form.addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    const newCode = inputNew.value.trim();
+                    if (newCode.length < 3) {
+                        if (errEl) {
+                            errEl.textContent = 'Le code d\'accès doit contenir au moins 3 caractères.';
+                            errEl.style.display = 'block';
+                        }
+                        return;
+                    }
+
+                    if (errEl) errEl.style.display = 'none';
+                    btnSubmit.disabled = true;
+                    btnSubmit.innerHTML = '<span class="spinner" style="width:16px;height:16px;margin:auto;"></span>';
+
+                    try {
+                        const res = await OC.api.setPublicCode(newCode);
+                        if (res && res.success) {
+                            this.adminCurrentCode = res.code;
+                            if (currentDisplay) currentDisplay.textContent = res.code;
+                            inputNew.value = '';
+                            this.closeOverlay('adminCodeModal');
+                            OC.sound.success();
+                            toast('Nouveau mot de passe du salon public enregistré !', { type: 'ok' });
+                        }
+                    } catch (err) {
+                        OC.sound.cancel();
+                        if (errEl) {
+                            errEl.textContent = err.message || 'Échec de la mise à jour du code.';
+                            errEl.style.display = 'block';
+                        }
+                    } finally {
+                        btnSubmit.disabled = false;
+                        btnSubmit.innerHTML = '<span>Mettre à jour le code</span>';
                     }
                 });
             }

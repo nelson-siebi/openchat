@@ -30,8 +30,16 @@ if ($method === 'GET') {
         Config::jsonResponse(['success' => false, 'error' => 'Code de salon manquant.'], 400);
     }
 
-    if ($roomCode !== 'public') {
-        $authUser = Database::getAuthUser();
+    $authUser = Database::getAuthUser();
+    if ($roomCode === 'public') {
+        if (!Database::hasPublicAccess($authUser)) {
+            Config::jsonResponse([
+                'success' => false,
+                'error' => 'Code d\'accès requis pour accéder au salon public.',
+                'public_access_required' => true
+            ], 403);
+        }
+    } else {
         if (!$authUser) {
             Config::jsonResponse([
                 'success' => false,
@@ -71,15 +79,23 @@ if ($method === 'GET') {
 if ($method === 'POST') {
     $rawInput = file_get_contents('php://input');
     $data = json_decode($rawInput, true) ?? $_POST;
-    $action = trim((string)($data['action'] ?? $_GET['action'] ?? ''));
-    $roomCode = trim((string)($data['room_code'] ?? $_GET['code'] ?? ''));
+    $action = trim((string)($data['action'] ?? ''));
+    $roomCode = trim((string)($data['room_code'] ?? ''));
 
     if (empty($roomCode)) {
         Config::jsonResponse(['success' => false, 'error' => 'Code de salon manquant.'], 400);
     }
 
-    if ($roomCode !== 'public') {
-        $authUser = Database::getAuthUser();
+    $authUser = Database::getAuthUser();
+    if ($roomCode === 'public') {
+        if (!Database::hasPublicAccess($authUser)) {
+            Config::jsonResponse([
+                'success' => false,
+                'error' => 'Code d\'accès requis pour accéder au salon public.',
+                'public_access_required' => true
+            ], 403);
+        }
+    } else {
         if (!$authUser) {
             Config::jsonResponse([
                 'success' => false,

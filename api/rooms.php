@@ -29,6 +29,68 @@ function generateRandomRoomCode(): string {
 }
 
 if ($method === 'POST') {
+    $rawInput = file_get_contents('php://input');
+    $data = json_decode($rawInput, true) ?? $_POST;
+    $action = trim((string)($data['action'] ?? ($_GET['action'] ?? '')));
+
+    // 1. Verify Public Room Access Code
+    if ($action === 'verify_public_code') {
+        $code = trim((string)($data['code'] ?? ''));
+        $currentCode = Database::getPublicAccessCode();
+        if ($code !== '' && hash_equals($currentCode, $code)) {
+            $hash = Database::getPublicAccessHash($currentCode);
+            $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https');
+            setcookie('openchat_public_access', $hash, [
+                'expires' => time() + (86400 * 30),
+                'path' => '/',
+                'secure' => $isHttps,
+                'httponly' => false,
+                'samesite' => 'Lax'
+            ]);
+            Config::jsonResponse([
+                'success' => true,
+                'token' => $hash,
+                'message' => 'Accès au salon public autorisé.'
+            ]);
+        } else {
+            Config::jsonResponse([
+                'success' => false,
+                'error' => 'Code d\'accès incorrect. Veuillez réessayer.'
+            ], 401);
+        }
+    }
+
+    // 2. Nelson Pro: Get current Public Room Access Code
+    if ($action === 'get_public_code') {
+        $authUser = Database::getAuthUser();
+        if (!Database::isNelsonAdmin($authUser)) {
+            Config::jsonResponse(['success' => false, 'error' => 'Accès réservé exclusivement à Nelson Pro.'], 403);
+        }
+        Config::jsonResponse([
+            'success' => true,
+            'code' => Database::getPublicAccessCode()
+        ]);
+    }
+
+    // 3. Nelson Pro: Update Public Room Access Code
+    if ($action === 'set_public_code') {
+        $authUser = Database::getAuthUser();
+        if (!Database::isNelsonAdmin($authUser)) {
+            Config::jsonResponse(['success' => false, 'error' => 'Accès réservé exclusivement à Nelson Pro.'], 403);
+        }
+        $newCode = trim((string)($data['code'] ?? ''));
+        if (strlen($newCode) < 3) {
+            Config::jsonResponse(['success' => false, 'error' => 'Le code d\'accès doit contenir au moins 3 caractères.'], 400);
+        }
+        Database::setPublicAccessCode($newCode);
+        Config::jsonResponse([
+            'success' => true,
+            'code' => $newCode,
+            'message' => 'Code d\'accès du salon public mis à jour avec succès.'
+        ]);
+    }
+
+    // 4. Create Private Room (requires authenticated account)
     $authUser = Database::getAuthUser();
     if (!$authUser) {
         Config::jsonResponse([
@@ -37,9 +99,6 @@ if ($method === 'POST') {
             'auth_required' => true
         ], 401);
     }
-
-    $rawInput = file_get_contents('php://input');
-    $data = json_decode($rawInput, true) ?? $_POST;
 
     $requestedCode = trim($data['code'] ?? '');
     $title = trim($data['title'] ?? '');
@@ -68,9 +127,19 @@ if ($method === 'GET') {
         Config::jsonResponse(['success' => false, 'error' => 'Code de salon manquant.'], 400);
     }
 
-    // Public room is open to everyone; private rooms require an account
-    if ($code !== 'public') {
-        $authUser = Database::getAuthUser();
+    $authUser = Database::getAuthUser();
+
+    // Public room check
+    if ($code === 'public') {
+        if (!Database::hasPublicAccess($authUser)) {
+            Config::jsonResponse([
+                'success' => false,
+                'error' => 'Code d\'accès requis pour accéder au salon public.',
+                'public_access_required' => true
+            ], 403);
+        }
+    } else {
+        // Private rooms require an account
         if (!$authUser) {
             Config::jsonResponse([
                 'success' => false,
