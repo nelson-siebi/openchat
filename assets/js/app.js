@@ -44,6 +44,7 @@
             this.authRequired = !!CFG.authRequired;
             this.isNelsonAdmin = !!CFG.isNelsonAdmin;
             this.publicAccessRequired = !!CFG.publicAccessRequired;
+            this.isDm = !!CFG.isDm;
             this.hasStartedLoading = false;
 
             this.username = (this.authUser && this.authUser.username) || store.get('openchat_username') || this.makeName();
@@ -175,6 +176,7 @@
             this.updateActionMode();
             this.bindPublicAccess();
             this.bindAdminPublicCode();
+            this.bindMembers();
 
             if (!this.authRequired && !this.publicAccessRequired) {
                 this.hasStartedLoading = true;
@@ -328,8 +330,14 @@
 
         saveRecent() {
             if (this.isPublic) return;
+            const existing = this.recentRooms().find((r) => r.code === this.room);
             const list = this.recentRooms().filter((r) => r.code !== this.room);
-            list.unshift({ code: this.room, at: Date.now() });
+            list.unshift({
+                code: this.room,
+                title: (existing && existing.title) || (this.isDm ? 'Discussion privée' : this.room),
+                targetUser: (existing && existing.targetUser) || null,
+                at: Date.now()
+            });
             store.setJson('openchat_recent_rooms', list.slice(0, 15));
         }
 
@@ -339,6 +347,7 @@
 
         roomAvatar(code, cls = '') {
             if (code === 'public') return `<span class="room-avatar room-avatar-public ${cls}">${icon('globe')}</span>`;
+            if (code.startsWith('dm-')) return `<span class="room-avatar room-avatar-dm ${cls}">${icon('user')}</span>`;
             const [a, b] = U.gradientFor(code);
             return `<span class="room-avatar ${cls}" style="--c1:${a};--c2:${b}">${U.esc(code.replace(/[^a-z0-9]/gi, '').slice(0, 2) || '#')}</span>`;
         }
@@ -346,20 +355,25 @@
         renderRecent(filter = '') {
             const box = $('#recentRooms');
             const f = filter.trim().toLowerCase();
-            const list = this.recentRooms().filter((r) => !f || r.code.includes(f));
+            const list = this.recentRooms().filter((r) => !f || r.code.includes(f) || (r.title && r.title.toLowerCase().includes(f)) || (r.targetUser && r.targetUser.toLowerCase().includes(f)));
             if (!list.length) {
-                box.innerHTML = `<div class="recent-empty">${f ? 'Aucun salon récent ne correspond. Appuyez sur Entrée pour rejoindre « ' + U.esc(U.sanitizeCode(f)) + ' ».' : 'Vos salons privés apparaîtront ici.'}</div>`;
+                box.innerHTML = `<div class="recent-empty">${f ? 'Aucun salon récent ne correspond. Appuyez sur Entrée pour rejoindre « ' + U.esc(U.sanitizeCode(f)) + ' ».' : 'Vos salons privés et discussions apparaîtront ici.'}</div>`;
                 return;
             }
-            box.innerHTML = list.map((r) => `
-                <a href="index.php?code=${encodeURIComponent(r.code)}" class="room-item ${r.code === this.room ? 'active' : ''}" data-code="${U.esc(r.code)}">
-                    ${this.roomAvatar(r.code)}
-                    <span class="room-item-body">
-                        <span class="room-item-title">${U.esc(r.code)}</span>
-                        <span class="room-item-sub">${r.code === this.room ? 'Salon actuel' : r.at ? 'Visité ' + U.ago(r.at) : 'Salon privé'}</span>
-                    </span>
-                    <button type="button" class="icon-btn icon-btn-sm room-item-remove" data-remove="${U.esc(r.code)}" title="Retirer de la liste" aria-label="Retirer">${icon('x', 'ic-sm')}</button>
-                </a>`).join('');
+            box.innerHTML = list.map((r) => {
+                const isDm = r.code.startsWith('dm-');
+                const title = r.targetUser ? `💬 ${r.targetUser}` : (r.title || r.code);
+                const sub = r.code === this.room ? 'Discussion actuelle' : (isDm ? 'Message privé' : (r.at ? 'Visité ' + U.ago(r.at) : 'Salon privé'));
+                return `
+                    <a href="index.php?code=${encodeURIComponent(r.code)}" class="room-item ${r.code === this.room ? 'active' : ''}" data-code="${U.esc(r.code)}">
+                        ${this.roomAvatar(r.code)}
+                        <span class="room-item-body">
+                            <span class="room-item-title">${U.esc(title)}</span>
+                            <span class="room-item-sub">${U.esc(sub)}</span>
+                        </span>
+                        <button type="button" class="icon-btn icon-btn-sm room-item-remove" data-remove="${U.esc(r.code)}" title="Retirer de la liste" aria-label="Retirer">${icon('x', 'ic-sm')}</button>
+                    </a>`;
+            }).join('');
 
             // Mirror into the room avatar in the header (gradient)
             if (!this.isPublic) {
@@ -634,23 +648,219 @@
             $('#shareEmail').href = `mailto:?subject=${encodeURIComponent('Rejoins-moi sur OpenChat')}&body=${encodeURIComponent(`${text}\n\n${this.shareUrl}`)}`;
         }
 
-        renderMembers() {
+        async renderMembers(filter = '') {
             const list = $('#membersList');
-            const members = this.members.length ? this.members : [{ username: this.username, avatar_color: this.avatarColor, is_online: true }];
-            const online = members.filter((m) => m.is_online).length || 1;
-            $('#membersCountText').textContent = `${online} en ligne · ${members.length} actif${members.length > 1 ? 's' : ''} récemment`;
-            list.innerHTML = members.map((m) => {
-                const me = this.myNames.has(m.username);
-                const status = m.is_online ? 'En ligne' : `Vu ${U.ago(Date.now() - (m.seconds_ago || 60) * 1000)}`;
-                return `
-                    <div class="member ${m.is_online ? 'online' : ''}">
-                        <span class="avatar" style="--c:${U.esc(m.avatar_color || U.colorFor(m.username))}">${U.esc(U.initials(m.username))}</span>
-                        <div>
-                            <div class="member-name">${U.esc(m.username)} ${me ? '<small>(vous)</small>' : ''}</div>
-                            <div class="member-status">${status}</div>
-                        </div>
-                    </div>`;
-            }).join('');
+            if (!list) return;
+
+            const f = filter.trim().toLowerCase();
+            const allMembers = this.members.length ? this.members : [{ username: this.username, avatar_color: this.avatarColor, is_online: true }];
+            const matchedMembers = allMembers.filter((m) => !f || m.username.toLowerCase().includes(f));
+            const online = allMembers.filter((m) => m.is_online).length || 1;
+
+            $('#membersCountText').textContent = `${online} en ligne · ${allMembers.length} actif${allMembers.length > 1 ? 's' : ''} récemment`;
+
+            let html = '';
+            if (matchedMembers.length > 0) {
+                html += matchedMembers.map((m) => {
+                    const me = this.myNames.has(m.username);
+                    const status = m.is_online ? 'En ligne' : (m.seconds_ago ? `Vu ${U.ago(Date.now() - m.seconds_ago * 1000)}` : 'Actif récemment');
+                    const adminBadge = m.is_admin ? '<span class="member-badge-admin">👑 Admin</span>' : '';
+                    const color = m.avatar_color || U.colorFor(m.username);
+                    const dmBtn = me ? '' : `
+                        <div class="member-actions">
+                            <button type="button" class="btn btn-xs btn-primary btn-dm-user" data-dm="${U.esc(m.username)}" title="Écrire en privé à ${U.esc(m.username)}">
+                                <svg class="ic ic-sm"><use href="#i-chat-plus"/></svg>
+                                <span>Message</span>
+                            </button>
+                        </div>`;
+
+                    return `
+                        <div class="member ${m.is_online ? 'online' : ''}" data-username="${U.esc(m.username)}" data-color="${U.esc(color)}">
+                            <div class="member-left">
+                                <span class="avatar" style="--c:${U.esc(color)}">${U.esc(U.initials(m.username))}</span>
+                                <div style="min-width:0;">
+                                    <div class="member-name">${U.esc(m.username)} ${me ? '<small>(vous)</small>' : ''} ${adminBadge}</div>
+                                    <div class="member-status">${status}</div>
+                                </div>
+                            </div>
+                            ${dmBtn}
+                        </div>`;
+                }).join('');
+            } else if (!f) {
+                html = '<div class="recent-empty">Aucun membre actif dans ce salon.</div>';
+            }
+
+            // If user searched for 2+ characters, also search all registered OpenChat users
+            if (f && f.length >= 2) {
+                try {
+                    const res = await OC.api.searchUsers(f);
+                    if (res && res.success && res.users && res.users.length) {
+                        const existingNames = new Set(matchedMembers.map((m) => m.username.toLowerCase()));
+                        const otherUsers = res.users.filter((u) => !existingNames.has(u.username.toLowerCase()));
+                        if (otherUsers.length) {
+                            html += `<div class="members-section-label">Autres utilisateurs OpenChat</div>`;
+                            html += otherUsers.map((u) => {
+                                const me = this.myNames.has(u.username);
+                                const adminBadge = u.is_admin ? '<span class="member-badge-admin">👑 Admin</span>' : '';
+                                const color = u.avatar_color || U.colorFor(u.username);
+                                const dmBtn = me ? '' : `
+                                    <div class="member-actions">
+                                        <button type="button" class="btn btn-xs btn-primary btn-dm-user" data-dm="${U.esc(u.username)}" title="Écrire en privé à ${U.esc(u.username)}">
+                                            <svg class="ic ic-sm"><use href="#i-chat-plus"/></svg>
+                                            <span>Message</span>
+                                        </button>
+                                    </div>`;
+
+                                return `
+                                    <div class="member" data-username="${U.esc(u.username)}" data-color="${U.esc(color)}">
+                                        <div class="member-left">
+                                            <span class="avatar" style="--c:${U.esc(color)}">${U.esc(U.initials(u.username))}</span>
+                                            <div style="min-width:0;">
+                                                <div class="member-name">${U.esc(u.username)} ${me ? '<small>(vous)</small>' : ''} ${adminBadge}</div>
+                                                <div class="member-status">Utilisateur enregistré</div>
+                                            </div>
+                                        </div>
+                                        ${dmBtn}
+                                    </div>`;
+                            }).join('');
+                        }
+                    }
+                } catch (e) {}
+            }
+
+            if (!html) {
+                html = `<div class="recent-empty">Aucun utilisateur trouvé pour « ${U.esc(f)} ».</div>`;
+            }
+
+            list.innerHTML = html;
+        }
+
+        bindMembers() {
+            const searchInput = $('#memberSearchInput');
+            if (searchInput) {
+                let debounceTimer = null;
+                searchInput.addEventListener('input', () => {
+                    clearTimeout(debounceTimer);
+                    debounceTimer = setTimeout(() => {
+                        this.renderMembers(searchInput.value.trim());
+                    }, 180);
+                });
+            }
+
+            const list = $('#membersList');
+            if (list) {
+                list.addEventListener('click', (e) => {
+                    const dmBtn = e.target.closest('[data-dm]');
+                    if (dmBtn) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        this.startPrivateChat(dmBtn.dataset.dm);
+                        return;
+                    }
+
+                    const memberRow = e.target.closest('.member');
+                    if (memberRow && memberRow.dataset.username) {
+                        const uname = memberRow.dataset.username;
+                        const color = memberRow.dataset.color;
+                        if (!this.myNames.has(uname)) {
+                            this.openUserCard(uname, color);
+                        }
+                    }
+                });
+            }
+
+            // User card modal actions
+            const btnDm = $('#btnUserCardDm');
+            if (btnDm) {
+                btnDm.addEventListener('click', () => {
+                    if (this._activeCardUser) {
+                        const target = this._activeCardUser;
+                        this.closeOverlay('userCardModal');
+                        this.startPrivateChat(target);
+                    }
+                });
+            }
+
+            const btnMention = $('#btnUserCardMention');
+            if (btnMention) {
+                btnMention.addEventListener('click', () => {
+                    if (this._activeCardUser) {
+                        const target = this._activeCardUser;
+                        this.closeOverlay('userCardModal');
+                        const input = this.els.input;
+                        input.value = `@${target} ` + input.value;
+                        input.focus();
+                    }
+                });
+            }
+        }
+
+        openUserCard(username, color = '') {
+            if (!username) return;
+            this._activeCardUser = username;
+
+            const member = this.members.find((m) => m.username.toLowerCase() === username.toLowerCase());
+            const avatarColor = color || (member && member.avatar_color) || U.colorFor(username);
+            const isOnline = member ? member.is_online : false;
+            const isAdmin = member ? member.is_admin : (['nelson', 'nelson pro', 'nelsonpro'].includes(username.toLowerCase()));
+
+            const av = $('#userCardAvatar');
+            if (av) {
+                av.textContent = U.initials(username);
+                av.style.setProperty('--c', avatarColor);
+                av.style.backgroundColor = avatarColor;
+            }
+
+            const nameEl = $('#userCardName');
+            if (nameEl) {
+                nameEl.innerHTML = `${U.esc(username)} ${isAdmin ? '<span class="member-badge-admin">👑 Admin</span>' : ''}`;
+            }
+
+            const statusEl = $('#userCardStatus');
+            if (statusEl) {
+                statusEl.innerHTML = isOnline
+                    ? '<span style="color:var(--brand);font-weight:600;">● En ligne</span>'
+                    : `<span style="color:var(--text-3);">${member && member.seconds_ago ? 'Vu ' + U.ago(Date.now() - member.seconds_ago * 1000) : 'Hors ligne'}</span>`;
+            }
+
+            this.openModal('userCardModal');
+        }
+
+        async startPrivateChat(targetUser) {
+            if (!targetUser || this.myNames.has(targetUser)) {
+                toast('Vous ne pouvez pas démarrer une discussion privée avec vous-même.', { type: 'info' });
+                return;
+            }
+
+            if (!this.authUser) {
+                this.closeOverlay('membersModal');
+                this.closeOverlay('userCardModal');
+                this.openAuthModal(`Veuillez vous connecter pour discuter en privé avec ${targetUser}.`, true);
+                return;
+            }
+
+            toast(`Ouverture de la discussion privée avec ${targetUser}…`, { type: 'ok' });
+            try {
+                const res = await OC.api.getOrCreateDm(targetUser);
+                if (res && res.success && res.room_code) {
+                    const dmCode = res.room_code;
+                    // Add to recent rooms
+                    const list = this.recentRooms().filter((r) => r.code !== dmCode);
+                    list.unshift({
+                        code: dmCode,
+                        title: `Discussion avec ${targetUser}`,
+                        targetUser: targetUser,
+                        at: Date.now()
+                    });
+                    store.setJson('openchat_recent_rooms', list.slice(0, 15));
+
+                    setTimeout(() => {
+                        this.goToRoom(dmCode);
+                    }, 250);
+                }
+            } catch (err) {
+                toast(err.message || 'Impossible de créer la discussion privée.', { type: 'err' });
+            }
         }
 
         // ==============================================================
@@ -1170,11 +1380,11 @@
             }
 
             row.innerHTML = `
-                <span class="avatar msg-avatar" style="--c:${color}" aria-hidden="true">${U.esc(U.initials(m.sender))}</span>
+                <span class="avatar msg-avatar" style="--c:${color}" aria-hidden="true" data-user-card="${U.esc(m.sender)}" data-sender-color="${color}" title="Profil de ${U.esc(m.sender)}">${U.esc(U.initials(m.sender))}</span>
                 <div class="msg-col">
                     <span class="swipe-reply">${icon('reply')}</span>
                     <div class="bubble ${bubbleCls}">
-                        ${mine ? '' : `<span class="bubble-sender" style="--name-c:${color}">${U.esc(m.sender)}</span>`}
+                        ${mine ? '' : `<span class="bubble-sender" style="--name-c:${color}" data-user-card="${U.esc(m.sender)}" data-sender-color="${color}" title="Profil de ${U.esc(m.sender)}">${U.esc(m.sender)}</span>`}
                         ${quote}
                         ${html}
                         ${this.metaHtml(m, mine)}
@@ -2433,6 +2643,18 @@
                     e.preventDefault();
                     this.handleAction(act.dataset.act, row, act);
                     return;
+                }
+
+                const uc = t.closest('[data-user-card]');
+                if (uc) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const uname = uc.dataset.userCard;
+                    const color = uc.dataset.senderColor || '';
+                    if (uname && !this.myNames.has(uname)) {
+                        this.openUserCard(uname, color);
+                        return;
+                    }
                 }
                 const rx = t.closest('[data-react]');
                 if (rx && row && row._msg && row._msg.id) {

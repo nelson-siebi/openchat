@@ -744,36 +744,132 @@ class Database
         $roomCode = self::sanitizeCode($roomCode);
         $db = self::getConnection();
 
-        // Active members in the last 5 minutes
+        // 1. Members recorded in room_presence within last 24h
         $stmt = $db->prepare("
-            SELECT username, avatar_color, last_seen, joined_at,
-                   CAST((strftime('%s', 'now') - strftime('%s', last_seen)) AS INTEGER) AS seconds_ago
-            FROM room_presence
-            WHERE room_code = :room AND last_seen >= datetime('now', '-300 seconds')
-            ORDER BY last_seen DESC
+            SELECT p.username, p.avatar_color, p.last_seen, p.joined_at,
+                   CAST((strftime('%s', 'now') - strftime('%s', p.last_seen)) AS INTEGER) AS seconds_ago,
+                   u.is_admin, u.avatar_color AS user_color
+            FROM room_presence p
+            LEFT JOIN users u ON LOWER(u.username) = LOWER(p.username)
+            WHERE p.room_code = :room AND p.last_seen >= datetime('now', '-86400 seconds')
+            ORDER BY p.last_seen DESC
         ");
         $stmt->execute([':room' => $roomCode]);
         $rows = $stmt->fetchAll();
 
+        $seenUsers = [];
         $members = [];
         $onlineCount = 0;
+
         foreach ($rows as $row) {
+            $u = $row['username'];
+            $key = strtolower($u);
+            if (isset($seenUsers[$key])) continue;
+            $seenUsers[$key] = true;
+
             $isOnline = (int)$row['seconds_ago'] <= 45;
             if ($isOnline) $onlineCount++;
+
+            $isAdmin = !empty($row['is_admin']) || self::isNelsonAdmin(['username' => $u, 'is_admin' => $row['is_admin'] ?? 0]);
+
             $members[] = [
-                'username' => $row['username'],
-                'avatar_color' => $row['avatar_color'],
+                'username' => $u,
+                'avatar_color' => $row['user_color'] ?: $row['avatar_color'],
                 'is_online' => $isOnline,
+                'is_admin' => $isAdmin,
                 'seconds_ago' => (int)$row['seconds_ago'],
                 'joined_at' => $row['joined_at']
             ];
         }
+
+        // 2. Also check recent senders from messages table
+        try {
+            $mStmt = $db->prepare("
+                SELECT DISTINCT m.sender, u.avatar_color, u.is_admin
+                FROM messages m
+                LEFT JOIN users u ON LOWER(u.username) = LOWER(m.sender)
+                WHERE m.room_code = :room AND m.sender != 'Système'
+                ORDER BY m.id DESC LIMIT 40
+            ");
+            $mStmt->execute([':room' => $roomCode]);
+            $senders = $mStmt->fetchAll();
+            foreach ($senders as $s) {
+                $u = $s['sender'];
+                $key = strtolower($u);
+                if (isset($seenUsers[$key])) continue;
+                $seenUsers[$key] = true;
+
+                $isAdmin = !empty($s['is_admin']) || self::isNelsonAdmin(['username' => $u, 'is_admin' => $s['is_admin'] ?? 0]);
+
+                $members[] = [
+                    'username' => $u,
+                    'avatar_color' => $s['avatar_color'] ?: '#10b981',
+                    'is_online' => false,
+                    'is_admin' => $isAdmin,
+                    'seconds_ago' => 3600,
+                    'joined_at' => null
+                ];
+            }
+        } catch (\Throwable $e) {}
+
+        // Sort: online first, then by seconds_ago asc
+        usort($members, static function ($a, $b) {
+            if ($a['is_online'] !== $b['is_online']) {
+                return $a['is_online'] ? -1 : 1;
+            }
+            return ($a['seconds_ago'] ?? 999999) <=> ($b['seconds_ago'] ?? 999999);
+        });
 
         return [
             'online_count' => max(1, $onlineCount),
             'total_active' => count($members),
             'members' => $members
         ];
+    }
+
+    public static function getOrCreateDmRoom(string $user1, string $user2): array
+    {
+        $u1 = strtolower(trim($user1));
+        $u2 = strtolower(trim($user2));
+        $pair = [$u1, $u2];
+        sort($pair);
+        $hash = substr(hash('sha256', 'dm:' . $pair[0] . ':' . $pair[1]), 0, 12);
+        $dmCode = 'dm-' . $hash;
+
+        $title = "Discussion privée";
+        return self::getOrCreateRoom($dmCode, $title);
+    }
+
+    public static function searchUsers(string $query, int $limit = 20): array
+    {
+        $query = trim($query);
+        if ($query === '') {
+            return [];
+        }
+        $db = self::getConnection();
+        $stmt = $db->prepare("
+            SELECT id, username, email, avatar_color, is_admin, last_login
+            FROM users
+            WHERE username LIKE :q OR (email IS NOT NULL AND email LIKE :q)
+            ORDER BY last_login DESC
+            LIMIT :lim
+        ");
+        $stmt->bindValue(':q', '%' . $query . '%', PDO::PARAM_STR);
+        $stmt->bindValue(':lim', $limit, PDO::PARAM_INT);
+        $stmt->execute();
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $results = [];
+        foreach ($rows as $row) {
+            $results[] = [
+                'id' => (int)$row['id'],
+                'username' => $row['username'],
+                'avatar_color' => $row['avatar_color'] ?? '#10b981',
+                'is_admin' => !empty($row['is_admin']) || self::isNelsonAdmin($row),
+                'last_login' => $row['last_login']
+            ];
+        }
+        return $results;
     }
 
     // ------------------------------------------------------------------

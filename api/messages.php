@@ -20,11 +20,11 @@ $method = $_SERVER['REQUEST_METHOD'];
 
 if ($method === 'GET') {
     $roomCode = trim($_GET['code'] ?? '');
-    $sinceId = (int)($_GET['since_id'] ?? 0);
-    $beforeId = (int)($_GET['before_id'] ?? 0);
+    $sinceId = (int) ($_GET['since_id'] ?? 0);
+    $beforeId = (int) ($_GET['before_id'] ?? 0);
     $latest = !empty($_GET['latest']);
-    $limit = max(1, min(200, (int)($_GET['limit'] ?? 100)));
-    $me = trim((string)($_GET['user'] ?? ''));
+    $limit = max(1, min(200, (int) ($_GET['limit'] ?? 100)));
+    $me = trim((string) ($_GET['user'] ?? ''));
 
     if (empty($roomCode)) {
         Config::jsonResponse(['success' => false, 'error' => 'Code de salon manquant.'], 400);
@@ -79,8 +79,8 @@ if ($method === 'GET') {
 if ($method === 'POST') {
     $rawInput = file_get_contents('php://input');
     $data = json_decode($rawInput, true) ?? $_POST;
-    $action = trim((string)($data['action'] ?? ''));
-    $roomCode = trim((string)($data['room_code'] ?? ''));
+    $action = trim((string) ($data['action'] ?? ''));
+    $roomCode = trim((string) ($data['room_code'] ?? ''));
 
     if (empty($roomCode)) {
         Config::jsonResponse(['success' => false, 'error' => 'Code de salon manquant.'], 400);
@@ -107,9 +107,9 @@ if ($method === 'POST') {
 
     // Handle message editing
     if ($action === 'edit') {
-        $messageId = (int)($data['message_id'] ?? 0);
-        $sender = trim((string)($data['sender'] ?? ''));
-        $newContent = trim((string)($data['content'] ?? ''));
+        $messageId = (int) ($data['message_id'] ?? 0);
+        $sender = trim((string) ($data['sender'] ?? ''));
+        $newContent = trim((string) ($data['content'] ?? ''));
 
         if ($messageId <= 0 || $newContent === '') {
             Config::jsonResponse(['success' => false, 'error' => 'Contenu ou ID manquant.'], 400);
@@ -125,8 +125,8 @@ if ($method === 'POST') {
 
     // Handle message deletion
     if ($action === 'delete') {
-        $messageId = (int)($data['message_id'] ?? 0);
-        $sender = trim((string)($data['sender'] ?? ''));
+        $messageId = (int) ($data['message_id'] ?? 0);
+        $sender = trim((string) ($data['sender'] ?? ''));
 
         if ($messageId <= 0) {
             Config::jsonResponse(['success' => false, 'error' => 'ID message manquant.'], 400);
@@ -142,9 +142,9 @@ if ($method === 'POST') {
 
     // Handle reaction toggle
     if ($action === 'react') {
-        $messageId = (int)($data['message_id'] ?? 0);
-        $emoji = trim((string)($data['emoji'] ?? '❤️'));
-        $username = trim((string)($data['username'] ?? 'Invité'));
+        $messageId = (int) ($data['message_id'] ?? 0);
+        $emoji = trim((string) ($data['emoji'] ?? '❤️'));
+        $username = trim((string) ($data['username'] ?? 'Invité'));
 
         if ($messageId <= 0) {
             Config::jsonResponse(['success' => false, 'error' => 'ID message manquant.'], 400);
@@ -154,18 +154,18 @@ if ($method === 'POST') {
         Config::jsonResponse($res, $res['success'] ? 200 : 404);
     }
 
-    $roomCode = trim((string)($data['room_code'] ?? ''));
-    $sender = trim((string)($data['sender'] ?? 'Anonyme'));
-    $content = trim((string)($data['content'] ?? ''));
-    $type = trim((string)($data['type'] ?? 'text'));
-    $fileUrl = isset($data['file_url']) ? (string)$data['file_url'] : null;
-    $fileName = isset($data['file_name']) ? (string)$data['file_name'] : null;
-    $fileSize = isset($data['file_size']) ? (int)$data['file_size'] : null;
+    $roomCode = trim((string) ($data['room_code'] ?? ''));
+    $sender = trim((string) ($data['sender'] ?? 'Anonyme'));
+    $content = trim((string) ($data['content'] ?? ''));
+    $type = trim((string) ($data['type'] ?? 'text'));
+    $fileUrl = isset($data['file_url']) ? (string) $data['file_url'] : null;
+    $fileName = isset($data['file_name']) ? (string) $data['file_name'] : null;
+    $fileSize = isset($data['file_size']) ? (int) $data['file_size'] : null;
     $meta = Database::sanitizeMeta($data['meta'] ?? null);
 
-    $replyToId = isset($data['reply_to_id']) ? (int)$data['reply_to_id'] : null;
-    $replyToSender = isset($data['reply_to_sender']) ? (string)$data['reply_to_sender'] : null;
-    $replyToContent = isset($data['reply_to_content']) ? (string)$data['reply_to_content'] : null;
+    $replyToId = isset($data['reply_to_id']) ? (int) $data['reply_to_id'] : null;
+    $replyToSender = isset($data['reply_to_sender']) ? (string) $data['reply_to_sender'] : null;
+    $replyToContent = isset($data['reply_to_content']) ? (string) $data['reply_to_content'] : null;
 
     if (empty($roomCode)) {
         Config::jsonResponse(['success' => false, 'error' => 'Code de salon manquant.'], 400);

@@ -90,7 +90,43 @@ if ($method === 'POST') {
         ]);
     }
 
-    // 4. Create Private Room (requires authenticated account)
+    // 4. Direct Message: Get or Create 1-on-1 private discussion
+    if ($action === 'get_or_create_dm') {
+        $authUser = Database::getAuthUser();
+        if (!$authUser) {
+            Config::jsonResponse([
+                'success' => false,
+                'error' => 'Veuillez vous connecter ou créer un compte pour démarrer une discussion privée.',
+                'auth_required' => true
+            ], 401);
+        }
+        $target = trim((string)($data['target'] ?? ($_GET['target'] ?? '')));
+        if ($target === '') {
+            Config::jsonResponse(['success' => false, 'error' => 'Destinataire manquant.'], 400);
+        }
+        if (strcasecmp($target, (string)$authUser['username']) === 0) {
+            Config::jsonResponse(['success' => false, 'error' => 'Vous ne pouvez pas créer de discussion privée avec vous-même.'], 400);
+        }
+        $room = Database::getOrCreateDmRoom((string)$authUser['username'], $target);
+        Config::jsonResponse([
+            'success' => true,
+            'room' => $room,
+            'room_code' => $room['code'],
+            'target' => $target
+        ]);
+    }
+
+    // 5. Search registered users
+    if ($action === 'search_users') {
+        $q = trim((string)($data['q'] ?? ($_GET['q'] ?? '')));
+        $users = Database::searchUsers($q, 20);
+        Config::jsonResponse([
+            'success' => true,
+            'users' => $users
+        ]);
+    }
+
+    // 6. Create Private Room (requires authenticated account)
     $authUser = Database::getAuthUser();
     if (!$authUser) {
         Config::jsonResponse([
@@ -122,6 +158,16 @@ if ($method === 'POST') {
 }
 
 if ($method === 'GET') {
+    $action = trim((string)($_GET['action'] ?? ''));
+    if ($action === 'search_users') {
+        $q = trim((string)($_GET['q'] ?? ''));
+        $users = Database::searchUsers($q, 20);
+        Config::jsonResponse([
+            'success' => true,
+            'users' => $users
+        ]);
+    }
+
     $code = trim($_GET['code'] ?? '');
     if (empty($code)) {
         Config::jsonResponse(['success' => false, 'error' => 'Code de salon manquant.'], 400);

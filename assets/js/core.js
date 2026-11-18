@@ -380,6 +380,12 @@
         setPublicCode(code) {
             return json('api/rooms.php', { method: 'POST', body: JSON.stringify({ action: 'set_public_code', code }) });
         },
+        getOrCreateDm(target) {
+            return json('api/rooms.php', { method: 'POST', body: JSON.stringify({ action: 'get_or_create_dm', target }) });
+        },
+        searchUsers(query) {
+            return json(`api/rooms.php?action=search_users&q=${encodeURIComponent(query)}`);
+        },
         linkPreview(url) {
             return json(`api/link_preview.php?url=${encodeURIComponent(url)}`);
         },

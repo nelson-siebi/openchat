@@ -22,10 +22,12 @@ if ($requestedCode === '') {
 $room = Database::getOrCreateRoom($requestedCode, $requestedCode === 'public' ? 'Salon Public Général' : '');
 $isPublicRoom = ($room['code'] === 'public');
 $roomCode = (string)$room['code'];
+$isDmRoom = str_starts_with($roomCode, 'dm-');
+$roomDisplayTitle = $isPublicRoom ? 'Salon public' : ($isDmRoom ? 'Discussion privée' : (!empty($room['title']) && $room['title'] !== 'Salon ' . strtoupper($roomCode) ? $room['title'] : $roomCode));
 $authRequired = (!$isPublicRoom && !$authUser);
 $publicAccessRequired = ($isPublicRoom && !$hasPublicAccess);
 
-$pageTitle = $isPublicRoom ? 'OpenChat - Chat & Partage Instantané Sans Inscription' : 'Salon ' . $roomCode . ' - OpenChat';
+$pageTitle = $isPublicRoom ? 'OpenChat - Chat & Partage Instantané Sans Inscription' : ($isDmRoom ? 'Discussion privée - OpenChat' : 'Salon ' . $roomCode . ' - OpenChat');
 $pageDesc = 'Partagez en 1 seconde des messages, liens, photos, vocaux et fichiers entre PC et smartphone ou avec vos amis, sans compte ni mot de passe.';
 $baseUrl = Config::getBaseUrl();
 $canonicalUrl = $baseUrl . '/index.php' . ($isPublicRoom ? '' : '?code=' . urlencode($roomCode));
@@ -269,13 +271,13 @@ $e = static fn(string $s): string => htmlspecialchars($s, ENT_QUOTES, 'UTF-8');
             </button>
 
             <button type="button" class="room-ident" data-open="membersModal" title="Infos du salon">
-                <span class="room-avatar <?= $isPublicRoom ? 'room-avatar-public' : '' ?>" id="headerRoomAvatar">
-                    <?php if ($isPublicRoom): ?><svg class="ic"><use href="#i-globe"/></svg><?php else: ?><?= $e(strtoupper(mb_substr($roomCode, 0, 2))) ?><?php endif; ?>
+                <span class="room-avatar <?= $isPublicRoom ? 'room-avatar-public' : ($isDmRoom ? 'room-avatar-dm' : '') ?>" id="headerRoomAvatar">
+                    <?php if ($isPublicRoom): ?><svg class="ic"><use href="#i-globe"/></svg><?php elseif ($isDmRoom): ?><svg class="ic"><use href="#i-user"/></svg><?php else: ?><?= $e(strtoupper(mb_substr($roomCode, 0, 2))) ?><?php endif; ?>
                 </span>
                 <span class="room-ident-body">
                     <span class="room-ident-title">
-                        <?php if (!$isPublicRoom): ?><svg class="ic ic-xs"><use href="#i-lock"/></svg><?php endif; ?>
-                        <span id="roomTitle"><?= $isPublicRoom ? 'Salon public' : $e($roomCode) ?></span>
+                        <?php if (!$isPublicRoom && !$isDmRoom): ?><svg class="ic ic-xs"><use href="#i-lock"/></svg><?php elseif ($isDmRoom): ?><svg class="ic ic-xs"><use href="#i-message"/></svg><?php endif; ?>
+                        <span id="roomTitle"><?= $e($roomDisplayTitle) ?></span>
                     </span>
                     <span class="room-ident-sub" id="roomSubtitle"><span class="online-dot"></span><span id="onlineText">connexion…</span></span>
                 </span>
@@ -714,18 +716,49 @@ $e = static fn(string $s): string => htmlspecialchars($s, ENT_QUOTES, 'UTF-8');
             <button type="button" class="icon-btn" data-close aria-label="Fermer"><svg class="ic"><use href="#i-x"/></svg></button>
         </div>
         <div class="room-card">
-            <span class="room-avatar room-avatar-lg <?= $isPublicRoom ? 'room-avatar-public' : '' ?>" id="membersRoomAvatar">
-                <?php if ($isPublicRoom): ?><svg class="ic"><use href="#i-globe"/></svg><?php else: ?><?= $e(strtoupper(mb_substr($roomCode, 0, 2))) ?><?php endif; ?>
+            <span class="room-avatar room-avatar-lg <?= $isPublicRoom ? 'room-avatar-public' : ($isDmRoom ? 'room-avatar-dm' : '') ?>" id="membersRoomAvatar">
+                <?php if ($isPublicRoom): ?><svg class="ic"><use href="#i-globe"/></svg><?php elseif ($isDmRoom): ?><svg class="ic"><use href="#i-user"/></svg><?php else: ?><?= $e(strtoupper(mb_substr($roomCode, 0, 2))) ?><?php endif; ?>
             </span>
             <div>
-                <div class="room-card-title"><?= $isPublicRoom ? 'Salon public' : $e($roomCode) ?></div>
+                <div class="room-card-title"><?= $e($roomDisplayTitle) ?></div>
                 <div class="room-card-sub" id="membersCountText">—</div>
             </div>
         </div>
+
+        <div class="form-group" style="margin: 12px 0 10px; position: relative;">
+            <input type="search" id="memberSearchInput" class="input input-sm" placeholder="Rechercher un membre ou un utilisateur…" style="padding-left: 36px;" autocomplete="off">
+            <svg class="ic ic-sm" style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); opacity: 0.6; pointer-events: none;"><use href="#i-search"/></svg>
+        </div>
+
         <div class="members-list" id="membersList"></div>
         <div class="modal-actions">
             <button type="button" class="btn btn-danger-soft" id="btnLeaveRoom"><svg class="ic ic-sm"><use href="#i-logout"/></svg> Quitter</button>
             <button type="button" class="btn btn-primary" data-open="inviteModal"><svg class="ic ic-sm"><use href="#i-share"/></svg> Inviter</button>
+        </div>
+    </div>
+</div>
+
+<!-- ============================ USER PROFILE / DM CARD ============================ -->
+<div class="modal" id="userCardModal" role="dialog" aria-modal="true" aria-labelledby="userCardName" hidden>
+    <div class="modal-card" style="text-align: center; max-width: 380px;">
+        <div class="modal-grabber"></div>
+        <div class="modal-head" style="justify-content: flex-end; margin-bottom: 0;">
+            <button type="button" class="icon-btn" data-close aria-label="Fermer"><svg class="ic"><use href="#i-x"/></svg></button>
+        </div>
+        <div style="margin-top: -6px;">
+            <span class="avatar" id="userCardAvatar" style="width: 72px; height: 72px; font-size: 1.7rem; margin: 0 auto 12px; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 18px rgba(0,0,0,0.18);"></span>
+            <h3 id="userCardName" style="font-size: 1.25rem; font-weight: 800; margin: 0 0 4px; display: flex; align-items: center; justify-content: center; gap: 6px;"></h3>
+            <div id="userCardStatus" style="font-size: 0.88rem; color: var(--text-2); margin-bottom: 16px;"></div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 6px;">
+            <button type="button" class="btn btn-primary btn-block" id="btnUserCardDm">
+                <svg class="ic ic-sm"><use href="#i-chat-plus"/></svg>
+                <span>Écrire en privé</span>
+            </button>
+            <button type="button" class="btn btn-soft btn-block" id="btnUserCardMention">
+                <span>@ Mentionner dans ce salon</span>
+            </button>
         </div>
     </div>
 </div>
@@ -895,6 +928,8 @@ $e = static fn(string $s): string => htmlspecialchars($s, ENT_QUOTES, 'UTF-8');
     window.OPENCHAT = {
         room: <?= json_encode($roomCode) ?>,
         isPublic: <?= $isPublicRoom ? 'true' : 'false' ?>,
+        isDm: <?= $isDmRoom ? 'true' : 'false' ?>,
+        roomTitle: <?= json_encode($roomDisplayTitle) ?>,
         shareUrl: <?= json_encode($shareUrl, JSON_UNESCAPED_SLASHES) ?>,
         maxFileMb: <?= (int)Config::MAX_FILE_SIZE_MB ?>,
         retentionHours: <?= (int)Config::MESSAGE_RETENTION_HOURS ?>,

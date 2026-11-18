@@ -1964,15 +1964,36 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 .room-card { display: flex; align-items: center; gap: 14px; padding: 4px 0 14px; border-bottom: 1px solid var(--border); margin-bottom: 8px; }
 .room-card-title { font-weight: 800; font-size: 17px; }
 .room-card-sub { color: var(--text-2); font-size: 13.5px; }
-.members-list { overflow-y: auto; max-height: 46dvh; margin: 0 -8px; }
+.members-list { overflow-y: auto; max-height: 48dvh; margin: 0 -8px; padding: 2px 4px; }
+.members-section-label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-3);
+    margin: 12px 6px 6px;
+}
 .member {
     display: flex;
     align-items: center;
+    justify-content: space-between;
     gap: 12px;
-    padding: 8px;
+    padding: 8px 10px;
     border-radius: var(--r);
+    transition: background 0.15s ease;
+    cursor: pointer;
 }
-.member .avatar { width: 42px; height: 42px; font-size: 16px; position: relative; overflow: visible; }
+.member:hover {
+    background: var(--bg-hover);
+}
+.member-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+    flex: 1;
+}
+.member .avatar { width: 42px; height: 42px; font-size: 16px; position: relative; overflow: visible; flex-shrink: 0; }
 .member .avatar::after {
     content: '';
     position: absolute;
@@ -1984,11 +2005,35 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
     border: 2.5px solid var(--bg-elev);
     background: var(--text-3);
 }
-.member.online .avatar::after { background: var(--brand); }
-.member-name { font-weight: 650; }
-.member-name small { color: var(--text-3); font-weight: 600; }
-.member-status { font-size: 13px; color: var(--text-3); }
-.member.online .member-status { color: var(--brand); }
+.member.online .avatar::after { background: var(--brand); box-shadow: 0 0 6px rgba(16, 185, 129, 0.4); }
+.member-name { font-weight: 650; display: flex; align-items: center; gap: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.member-name small { color: var(--text-3); font-weight: 600; font-size: 12px; }
+.member-badge-admin {
+    font-size: 10.5px;
+    font-weight: 700;
+    color: #f59e0b;
+    background: rgba(245, 158, 11, 0.15);
+    padding: 1px 6px;
+    border-radius: 5px;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    flex-shrink: 0;
+}
+.member-status { font-size: 12.5px; color: var(--text-3); }
+.member.online .member-status { color: var(--brand); font-weight: 500; }
+.member-actions { flex-shrink: 0; }
+.room-avatar-dm {
+    background: linear-gradient(135deg, #6366f1, #8b5cf6) !important;
+    color: #fff !important;
+}
+.msg-avatar, .bubble-sender {
+    cursor: pointer;
+    user-select: none;
+}
+.msg-avatar:active, .bubble-sender:hover {
+    opacity: 0.82;
+}
 
 /* Share target */
 .share-preview {
