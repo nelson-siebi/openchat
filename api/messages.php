@@ -71,8 +71,8 @@ if ($method === 'GET') {
 if ($method === 'POST') {
     $rawInput = file_get_contents('php://input');
     $data = json_decode($rawInput, true) ?? $_POST;
-    $action = trim((string)($data['action'] ?? ''));
-    $roomCode = trim((string)($data['room_code'] ?? ''));
+    $action = trim((string)($data['action'] ?? $_GET['action'] ?? ''));
+    $roomCode = trim((string)($data['room_code'] ?? $_GET['code'] ?? ''));
 
     if (empty($roomCode)) {
         Config::jsonResponse(['success' => false, 'error' => 'Code de salon manquant.'], 400);
