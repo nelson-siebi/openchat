@@ -826,7 +826,10 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 .bubble-meta .ic { width: 15px; height: 15px; stroke-width: 2.4; }
 .bubble-meta .tick-failed { color: #fecaca; }
 .bubble-meta .tick-pending { animation: blink 1.4s infinite; }
-.edited-flag { font-style: italic; }
+.bubble-meta .tick-read { color: #38bdf8 !important; }
+.bubble-meta .tick-delivered { color: currentColor; opacity: 0.85; }
+.edited-flag { font-style: italic; font-size: 0.72em; opacity: 0.75; margin-right: 3px; }
+.deleted-text { font-style: italic; opacity: 0.75; display: inline-flex; align-items: center; gap: 4px; }
 
 .msg-row:not(.grp-start) .bubble-sender { display: none; }
 .msg-row.pending .bubble { opacity: 0.92; }
@@ -1538,6 +1541,8 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 .reply-bar-body { flex: 1; min-width: 0; border-left: 3px solid var(--brand); padding-left: 10px; }
 .reply-bar-name { font-size: 13px; font-weight: 750; color: var(--brand); }
 .reply-bar-text { font-size: 13.5px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.edit-bar .reply-bar-body { border-left-color: #38bdf8; }
+.edit-bar .reply-bar-name { color: #38bdf8; }
 
 /* Hold-to-record overlay */
 .rec-hold {
@@ -2286,6 +2291,9 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 }
 .ctx-item .ic { width: 20px; height: 20px; color: var(--text-2); }
 .ctx-item:hover { background: var(--bg-hover); }
+.ctx-item-danger { color: #f87171; }
+.ctx-item-danger .ic { color: #f87171 !important; }
+.ctx-item-danger:hover { background: rgba(239, 68, 68, 0.12) !important; color: #ef4444; }
 
 /* ------------------------------------------------------------------ */
 /* Toasts                                                              */

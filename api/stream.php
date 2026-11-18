@@ -46,6 +46,14 @@ if ($roomCode === '') {
     exit;
 }
 
+if ($roomCode !== 'public') {
+    $authUser = Database::getAuthUser();
+    if (!$authUser) {
+        sse('error', ['error' => 'Compte requis pour ce salon privé.', 'auth_required' => true]);
+        exit;
+    }
+}
+
 // Ask the browser to retry quickly if the connection drops
 echo "retry: 1500\n\n";
 flush();
@@ -53,6 +61,8 @@ flush();
 $startTime = time();
 $maxDuration = 25; // seconds before gentle reconnect
 $lastTyping = null;
+$lastMaxReadId = -1;
+$lastPeerCount = -1;
 $lastPing = time();
 
 while (time() - $startTime < $maxDuration) {
@@ -71,14 +81,24 @@ while (time() - $startTime < $maxDuration) {
         $sent = true;
     }
 
-    $updates = Database::getReactionUpdates($roomCode, $since);
+    $updates = Database::getMessageUpdates($roomCode, $since);
     if (!empty($updates)) {
-        $out = [];
+        $rxOut = [];
         foreach ($updates as $u) {
             $since = max($since, (string)$u['updated_at']);
-            $out[] = ['id' => (int)$u['id'], 'reactions' => Database::normalizeReactions($u['reactions'])];
+            $rxOut[] = ['id' => (int)$u['id'], 'reactions' => Database::normalizeReactions($u['reactions'])];
         }
-        sse('reactions', ['updates' => $out, 'since_ts' => $since]);
+        sse('reactions', ['updates' => $rxOut, 'since_ts' => $since]);
+        sse('messages_updated', ['messages' => $updates, 'since_ts' => $since]);
+        $sent = true;
+    }
+
+    $curMaxReadId = Database::getRoomMaxReadId($roomCode, $me);
+    $curPeerCount = Database::getPeerCount($roomCode, $me);
+    if ($curMaxReadId !== $lastMaxReadId || $curPeerCount !== $lastPeerCount) {
+        $lastMaxReadId = $curMaxReadId;
+        $lastPeerCount = $curPeerCount;
+        sse('read_receipt', ['max_read_id' => $curMaxReadId, 'peer_count' => $curPeerCount]);
         $sent = true;
     }
 

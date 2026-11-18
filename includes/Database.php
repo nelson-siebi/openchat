@@ -72,7 +72,26 @@ class Database
                 last_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
                 joined_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 typing_at TEXT DEFAULT NULL,
+                last_read_id INTEGER DEFAULT 0,
                 UNIQUE(room_code, username)
+            );
+
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT UNIQUE NOT NULL COLLATE NOCASE,
+                email TEXT DEFAULT NULL,
+                password_hash TEXT NOT NULL,
+                avatar_color TEXT NOT NULL DEFAULT '#10b981',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                last_login DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS user_sessions (
+                token TEXT PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                expires_at DATETIME NOT NULL,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             );
 
             CREATE TABLE IF NOT EXISTS share_drafts (
@@ -84,6 +103,8 @@ class Database
             CREATE INDEX IF NOT EXISTS idx_messages_room_id ON messages (room_code, id);
             CREATE INDEX IF NOT EXISTS idx_rooms_code ON rooms (code);
             CREATE INDEX IF NOT EXISTS idx_presence_room ON room_presence (room_code, last_seen);
+            CREATE INDEX IF NOT EXISTS idx_users_username ON users (username);
+            CREATE INDEX IF NOT EXISTS idx_sessions_token ON user_sessions (token, expires_at);
         ";
 
         self::$pdo->exec($sql);
@@ -111,6 +132,38 @@ class Database
         $presenceCols = $db->query("PRAGMA table_info(room_presence)")->fetchAll(PDO::FETCH_COLUMN, 1);
         if (!in_array('typing_at', $presenceCols, true)) {
             $db->exec("ALTER TABLE room_presence ADD COLUMN typing_at TEXT DEFAULT NULL");
+        }
+        if (!in_array('last_read_id', $presenceCols, true)) {
+            $db->exec("ALTER TABLE room_presence ADD COLUMN last_read_id INTEGER DEFAULT 0");
+        }
+
+        // Ensure users and user_sessions tables exist
+        $tables = $db->query("SELECT name FROM sqlite_master WHERE type='table'")->fetchAll(PDO::FETCH_COLUMN);
+        if (!in_array('users', $tables, true)) {
+            $db->exec("
+                CREATE TABLE IF NOT EXISTS users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username TEXT UNIQUE NOT NULL COLLATE NOCASE,
+                    email TEXT DEFAULT NULL,
+                    password_hash TEXT NOT NULL,
+                    avatar_color TEXT NOT NULL DEFAULT '#10b981',
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    last_login DATETIME DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE INDEX IF NOT EXISTS idx_users_username ON users (username);
+            ");
+        }
+        if (!in_array('user_sessions', $tables, true)) {
+            $db->exec("
+                CREATE TABLE IF NOT EXISTS user_sessions (
+                    token TEXT PRIMARY KEY,
+                    user_id INTEGER NOT NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    expires_at DATETIME NOT NULL,
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                );
+                CREATE INDEX IF NOT EXISTS idx_sessions_token ON user_sessions (token, expires_at);
+            ");
         }
 
         $db->exec("CREATE INDEX IF NOT EXISTS idx_messages_room_updated ON messages (room_code, updated_at)");
@@ -415,12 +468,95 @@ class Database
         return array_reverse($stmt->fetchAll());
     }
 
-    /** Messages whose reactions changed after $since (ms timestamp). */
-    public static function getReactionUpdates(string $roomCode, string $since): array
+    /** Edit a message (sender-only check, updates content and meta.edited). */
+    public static function editMessage(int $id, string $roomCode, string $sender, string $newContent): ?array
+    {
+        $roomCode = self::sanitizeCode($roomCode);
+        $newContent = trim($newContent);
+        if ($id <= 0 || $newContent === '') return null;
+
+        $db = self::getConnection();
+        $stmt = $db->prepare("SELECT * FROM messages WHERE id = :id AND room_code = :code LIMIT 1");
+        $stmt->execute([':id' => $id, ':code' => $roomCode]);
+        $msg = $stmt->fetch();
+        if (!$msg) return null;
+
+        if (strcasecmp((string)$msg['sender'], $sender) !== 0) {
+            return null;
+        }
+
+        $meta = [];
+        if (!empty($msg['meta'])) {
+            $meta = json_decode((string)$msg['meta'], true) ?: [];
+        }
+        $meta['edited'] = true;
+        $meta['edited_at'] = self::nowMs();
+        $metaJson = json_encode($meta, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+        $now = self::nowMs();
+        $upd = $db->prepare("
+            UPDATE messages
+            SET content = :content, meta = :meta, updated_at = :updated_at
+            WHERE id = :id
+        ");
+        $upd->execute([
+            ':content' => $newContent,
+            ':meta' => $metaJson,
+            ':updated_at' => $now,
+            ':id' => $id
+        ]);
+
+        $stmt->execute([':id' => $id, ':code' => $roomCode]);
+        return $stmt->fetch() ?: null;
+    }
+
+    /** Soft-delete a message (sender-only check). */
+    public static function deleteMessage(int $id, string $roomCode, string $sender): ?array
+    {
+        $roomCode = self::sanitizeCode($roomCode);
+        if ($id <= 0) return null;
+
+        $db = self::getConnection();
+        $stmt = $db->prepare("SELECT * FROM messages WHERE id = :id AND room_code = :code LIMIT 1");
+        $stmt->execute([':id' => $id, ':code' => $roomCode]);
+        $msg = $stmt->fetch();
+        if (!$msg) return null;
+
+        if (strcasecmp((string)$msg['sender'], $sender) !== 0) {
+            return null;
+        }
+
+        $meta = [];
+        if (!empty($msg['meta'])) {
+            $meta = json_decode((string)$msg['meta'], true) ?: [];
+        }
+        $meta['deleted'] = true;
+        $meta['deleted_at'] = self::nowMs();
+        $metaJson = json_encode($meta, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+        $now = self::nowMs();
+        $upd = $db->prepare("
+            UPDATE messages
+            SET type = 'deleted', content = 'Ce message a été supprimé', file_url = NULL, file_name = NULL, file_size = NULL, meta = :meta, updated_at = :updated_at
+            WHERE id = :id
+        ");
+        $upd->execute([
+            ':meta' => $metaJson,
+            ':updated_at' => $now,
+            ':id' => $id
+        ]);
+
+        $stmt->execute([':id' => $id, ':code' => $roomCode]);
+        return $stmt->fetch() ?: null;
+    }
+
+    /** Messages whose content, reactions or meta changed after $since (ms timestamp). */
+    public static function getMessageUpdates(string $roomCode, string $since): array
     {
         $roomCode = self::sanitizeCode($roomCode);
         $stmt = self::getConnection()->prepare("
-            SELECT id, reactions, updated_at FROM messages
+            SELECT id, room_code, sender, type, content, file_url, file_name, file_size, reactions, meta, updated_at
+            FROM messages
             WHERE room_code = :code AND updated_at IS NOT NULL AND updated_at > :since
             ORDER BY updated_at ASC LIMIT 100
         ");
@@ -428,7 +564,54 @@ class Database
         return $stmt->fetchAll();
     }
 
-    public static function updatePresence(string $roomCode, string $username, string $avatarColor = '#10b981'): array
+    /** Messages whose reactions changed after $since (ms timestamp) - backward compatibility. */
+    public static function getReactionUpdates(string $roomCode, string $since): array
+    {
+        return self::getMessageUpdates($roomCode, $since);
+    }
+
+    public static function setLastRead(string $roomCode, string $username, int $lastReadId): void
+    {
+        $roomCode = self::sanitizeCode($roomCode);
+        $username = mb_substr(trim(strip_tags($username)), 0, 32);
+        if ($roomCode === '' || $username === '' || $lastReadId <= 0) return;
+
+        $db = self::getConnection();
+        $stmt = $db->prepare("
+            INSERT INTO room_presence (room_code, username, last_seen, joined_at, last_read_id)
+            VALUES (:room, :user, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, :read_id)
+            ON CONFLICT(room_code, username) DO UPDATE SET
+                last_read_id = MAX(COALESCE(last_read_id, 0), excluded.last_read_id),
+                last_seen = CURRENT_TIMESTAMP
+        ");
+        $stmt->execute([':room' => $roomCode, ':user' => $username, ':read_id' => $lastReadId]);
+    }
+
+    public static function getRoomMaxReadId(string $roomCode, string $excludeUser = ''): int
+    {
+        $roomCode = self::sanitizeCode($roomCode);
+        $stmt = self::getConnection()->prepare("
+            SELECT COALESCE(MAX(last_read_id), 0)
+            FROM room_presence
+            WHERE room_code = :room AND username != :user
+        ");
+        $stmt->execute([':room' => $roomCode, ':user' => $excludeUser]);
+        return (int)$stmt->fetchColumn();
+    }
+
+    public static function getPeerCount(string $roomCode, string $excludeUser = ''): int
+    {
+        $roomCode = self::sanitizeCode($roomCode);
+        $stmt = self::getConnection()->prepare("
+            SELECT COUNT(*)
+            FROM room_presence
+            WHERE room_code = :room AND username != :user
+        ");
+        $stmt->execute([':room' => $roomCode, ':user' => $excludeUser]);
+        return (int)$stmt->fetchColumn();
+    }
+
+    public static function updatePresence(string $roomCode, string $username, string $avatarColor = '#10b981', int $lastReadId = 0): array
     {
         $roomCode = self::sanitizeCode($roomCode);
         $username = mb_substr(trim(strip_tags($username)), 0, 32);
@@ -443,15 +626,16 @@ class Database
 
         $isNewJoin = !$existing || (int)$existing['secs'] > 120;
 
-        // Upsert presence
+        // Upsert presence with optional last_read_id
         $stmt = $db->prepare("
-            INSERT INTO room_presence (room_code, username, avatar_color, last_seen, joined_at)
-            VALUES (:room, :user, :color, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            INSERT INTO room_presence (room_code, username, avatar_color, last_seen, joined_at, last_read_id)
+            VALUES (:room, :user, :color, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, :read_id)
             ON CONFLICT(room_code, username) DO UPDATE SET
                 avatar_color = excluded.avatar_color,
-                last_seen = CURRENT_TIMESTAMP
+                last_seen = CURRENT_TIMESTAMP,
+                last_read_id = MAX(COALESCE(room_presence.last_read_id, 0), excluded.last_read_id)
         ");
-        $stmt->execute([':room' => $roomCode, ':user' => $username, ':color' => $avatarColor]);
+        $stmt->execute([':room' => $roomCode, ':user' => $username, ':color' => $avatarColor, ':read_id' => $lastReadId]);
 
         // If new join, create system announcement message
         if ($isNewJoin && $roomCode !== 'public') {
@@ -583,6 +767,156 @@ class Database
         if (!$raw) return null;
         $data = json_decode((string)$raw, true);
         return is_array($data) ? $data : null;
+    }
+
+    // ------------------------------------------------------------------
+    // Users & Authentication (Optional for Public, Required for Private)
+    // ------------------------------------------------------------------
+
+    public static function registerUser(string $username, string $password, ?string $email = null, string $avatarColor = '#10b981'): array
+    {
+        $username = trim(strip_tags($username));
+        if (mb_strlen($username) < 3 || mb_strlen($username) > 30) {
+            return ['success' => false, 'error' => 'Le pseudo doit contenir entre 3 et 30 caractères.'];
+        }
+        if (!preg_match('/^[a-zA-Z0-9_\-\. ]+$/u', $username)) {
+            return ['success' => false, 'error' => 'Le pseudo contient des caractères non autorisés.'];
+        }
+        if (strlen($password) < 4) {
+            return ['success' => false, 'error' => 'Le mot de passe doit contenir au moins 4 caractères.'];
+        }
+        if (!preg_match('/^#[0-9a-f]{6}$/i', $avatarColor)) {
+            $avatarColor = '#10b981';
+        }
+
+        $db = self::getConnection();
+        $check = $db->prepare("SELECT id FROM users WHERE username = :u LIMIT 1");
+        $check->execute([':u' => $username]);
+        if ($check->fetch()) {
+            return ['success' => false, 'error' => 'Ce nom d\'utilisateur est déjà pris.'];
+        }
+
+        $hash = password_hash($password, PASSWORD_DEFAULT);
+        $stmt = $db->prepare("
+            INSERT INTO users (username, email, password_hash, avatar_color, created_at, last_login)
+            VALUES (:u, :e, :p, :c, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        ");
+        $stmt->execute([
+            ':u' => $username,
+            ':e' => !empty($email) ? trim($email) : null,
+            ':p' => $hash,
+            ':c' => $avatarColor
+        ]);
+
+        $userId = (int)$db->lastInsertId();
+        $token = self::createSession($userId);
+
+        return [
+            'success' => true,
+            'token' => $token,
+            'user' => [
+                'id' => $userId,
+                'username' => $username,
+                'avatar_color' => $avatarColor,
+                'email' => $email
+            ]
+        ];
+    }
+
+    public static function loginUser(string $login, string $password): array
+    {
+        $login = trim($login);
+        if ($login === '' || $password === '') {
+            return ['success' => false, 'error' => 'Veuillez saisir votre pseudo et mot de passe.'];
+        }
+
+        $db = self::getConnection();
+        $stmt = $db->prepare("SELECT * FROM users WHERE username = :u OR (email IS NOT NULL AND email = :u) LIMIT 1");
+        $stmt->execute([':u' => $login]);
+        $user = $stmt->fetch();
+
+        if (!$user || !password_verify($password, (string)$user['password_hash'])) {
+            return ['success' => false, 'error' => 'Identifiants incorrects.'];
+        }
+
+        $userId = (int)$user['id'];
+        $db->prepare("UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = :id")->execute([':id' => $userId]);
+        $token = self::createSession($userId);
+
+        return [
+            'success' => true,
+            'token' => $token,
+            'user' => [
+                'id' => $userId,
+                'username' => $user['username'],
+                'avatar_color' => $user['avatar_color'] ?? '#10b981',
+                'email' => $user['email']
+            ]
+        ];
+    }
+
+    public static function createSession(int $userId): string
+    {
+        $token = bin2hex(random_bytes(32));
+        $db = self::getConnection();
+        $expires = gmdate('Y-m-d H:i:s', time() + (30 * 86400));
+        $stmt = $db->prepare("INSERT INTO user_sessions (token, user_id, expires_at) VALUES (:t, :u, :e)");
+        $stmt->execute([':t' => $token, ':u' => $userId, ':e' => $expires]);
+        return $token;
+    }
+
+    public static function getUserBySession(?string $token): ?array
+    {
+        if (empty($token)) return null;
+        $token = preg_replace('/[^a-f0-9]/', '', strtolower($token));
+        if (strlen($token) !== 64) return null;
+
+        $db = self::getConnection();
+        $stmt = $db->prepare("
+            SELECT u.id, u.username, u.email, u.avatar_color, u.created_at
+            FROM user_sessions s
+            JOIN users u ON u.id = s.user_id
+            WHERE s.token = :t AND s.expires_at > CURRENT_TIMESTAMP
+            LIMIT 1
+        ");
+        $stmt->execute([':t' => $token]);
+        $row = $stmt->fetch();
+        return $row ?: null;
+    }
+
+    public static function deleteSession(?string $token): void
+    {
+        if (empty($token)) return;
+        $token = preg_replace('/[^a-f0-9]/', '', strtolower($token));
+        if ($token === '') return;
+        $db = self::getConnection();
+        $db->prepare("DELETE FROM user_sessions WHERE token = :t")->execute([':t' => $token]);
+    }
+
+    public static function getAuthUser(): ?array
+    {
+        // Try Authorization Bearer
+        $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? ($_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '');
+        if (preg_match('/Bearer\s+([a-f0-9]{64})/i', $authHeader, $m)) {
+            $user = self::getUserBySession($m[1]);
+            if ($user) return $user;
+        }
+
+        // Try Cookie
+        $cookieToken = $_COOKIE['openchat_token'] ?? '';
+        if (!empty($cookieToken)) {
+            $user = self::getUserBySession($cookieToken);
+            if ($user) return $user;
+        }
+
+        // Try Query / Body parameter
+        $paramToken = $_GET['auth_token'] ?? ($_POST['auth_token'] ?? '');
+        if (!empty($paramToken)) {
+            $user = self::getUserBySession((string)$paramToken);
+            if ($user) return $user;
+        }
+
+        return null;
     }
 
     public static function purgeOldData(): void

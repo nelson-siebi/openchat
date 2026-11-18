@@ -24,9 +24,21 @@ if ($method === 'GET') {
     $beforeId = (int)($_GET['before_id'] ?? 0);
     $latest = !empty($_GET['latest']);
     $limit = max(1, min(200, (int)($_GET['limit'] ?? 100)));
+    $me = trim((string)($_GET['user'] ?? ''));
 
     if (empty($roomCode)) {
         Config::jsonResponse(['success' => false, 'error' => 'Code de salon manquant.'], 400);
+    }
+
+    if ($roomCode !== 'public') {
+        $authUser = Database::getAuthUser();
+        if (!$authUser) {
+            Config::jsonResponse([
+                'success' => false,
+                'error' => 'Veuillez créer un compte ou vous connecter pour accéder à ce salon privé.',
+                'auth_required' => true
+            ], 401);
+        }
     }
 
     if ($latest || $beforeId > 0) {
@@ -41,12 +53,17 @@ if ($method === 'GET') {
         $hasMore = false;
     }
 
+    $peerMaxReadId = Database::getRoomMaxReadId($roomCode, $me);
+    $peerCount = Database::getPeerCount($roomCode, $me);
+
     Config::jsonResponse([
         'success' => true,
         'room_code' => $roomCode,
         'messages' => $messages,
         'count' => count($messages),
         'has_more' => $hasMore,
+        'peer_max_read_id' => $peerMaxReadId,
+        'peer_count' => $peerCount,
         'server_time' => Database::nowMs()
     ]);
 }
@@ -54,9 +71,61 @@ if ($method === 'GET') {
 if ($method === 'POST') {
     $rawInput = file_get_contents('php://input');
     $data = json_decode($rawInput, true) ?? $_POST;
+    $action = trim((string)($data['action'] ?? ''));
+    $roomCode = trim((string)($data['room_code'] ?? ''));
+
+    if (empty($roomCode)) {
+        Config::jsonResponse(['success' => false, 'error' => 'Code de salon manquant.'], 400);
+    }
+
+    if ($roomCode !== 'public') {
+        $authUser = Database::getAuthUser();
+        if (!$authUser) {
+            Config::jsonResponse([
+                'success' => false,
+                'error' => 'Veuillez créer un compte ou vous connecter pour accéder à ce salon privé.',
+                'auth_required' => true
+            ], 401);
+        }
+    }
+
+    // Handle message editing
+    if ($action === 'edit') {
+        $messageId = (int)($data['message_id'] ?? 0);
+        $sender = trim((string)($data['sender'] ?? ''));
+        $newContent = trim((string)($data['content'] ?? ''));
+
+        if ($messageId <= 0 || $newContent === '') {
+            Config::jsonResponse(['success' => false, 'error' => 'Contenu ou ID manquant.'], 400);
+        }
+
+        $updated = Database::editMessage($messageId, $roomCode, $sender, $newContent);
+        if (!$updated) {
+            Config::jsonResponse(['success' => false, 'error' => 'Modification non autorisée ou message introuvable.'], 403);
+        }
+
+        Config::jsonResponse(['success' => true, 'message' => $updated]);
+    }
+
+    // Handle message deletion
+    if ($action === 'delete') {
+        $messageId = (int)($data['message_id'] ?? 0);
+        $sender = trim((string)($data['sender'] ?? ''));
+
+        if ($messageId <= 0) {
+            Config::jsonResponse(['success' => false, 'error' => 'ID message manquant.'], 400);
+        }
+
+        $deleted = Database::deleteMessage($messageId, $roomCode, $sender);
+        if (!$deleted) {
+            Config::jsonResponse(['success' => false, 'error' => 'Suppression non autorisée ou message introuvable.'], 403);
+        }
+
+        Config::jsonResponse(['success' => true, 'message_id' => $messageId, 'message' => $deleted]);
+    }
 
     // Handle reaction toggle
-    if (($data['action'] ?? '') === 'react') {
+    if ($action === 'react') {
         $messageId = (int)($data['message_id'] ?? 0);
         $emoji = trim((string)($data['emoji'] ?? '❤️'));
         $username = trim((string)($data['username'] ?? 'Invité'));

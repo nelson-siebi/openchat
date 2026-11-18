@@ -40,10 +40,13 @@
             this.maxBytes = this.maxMb * 1024 * 1024;
             this.baseTitle = document.title;
 
-            this.username = store.get('openchat_username') || this.makeName();
+            this.authUser = CFG.authUser || null;
+            this.authRequired = !!CFG.authRequired;
+
+            this.username = (this.authUser && this.authUser.username) || store.get('openchat_username') || this.makeName();
             this.myNames = new Set(store.json('openchat_my_names', []));
             this.myNames.add(this.username);
-            this.avatarColor = store.get('openchat_avatar_color', '#10b981');
+            this.avatarColor = (this.authUser && this.authUser.avatar_color) || store.get('openchat_avatar_color', '#10b981');
             this.themePref = store.get('openchat_theme', 'auto');
             this.wallpaper = store.get('openchat_chat_theme', 'default');
             if (!WALLPAPERS.includes(this.wallpaper)) this.wallpaper = 'default';
@@ -51,6 +54,10 @@
             this.soundOn = store.get('openchat_sound') !== 'false';
             const es = store.get('openchat_enter_send');
             this.enterSend = es === null ? !U.isTouch : es === 'true';
+
+            this.peerMaxReadId = 0;
+            this.peerCount = 0;
+            this.editingMsg = null;
 
             this.msgs = new Map();
             this.rows = new Map();
@@ -91,6 +98,11 @@
                 emoji: $('#emojiPanel'),
                 attach: $('#attachMenu'),
                 replyBar: $('#replyBar'),
+                editBar: $('#editBar'),
+                editBarText: $('#editBarText'),
+                btnCancelEdit: $('#btnCancelEdit'),
+                btnSidebarAuth: $('#btnSidebarAuth'),
+                btnSidebarAuthText: $('#btnSidebarAuthText'),
                 sidebar: $('#sidebar'),
                 scrim: $('#sidebarScrim'),
                 ctxBackdrop: $('#ctxBackdrop'),
@@ -143,6 +155,7 @@
             this.bindHeader();
             this.bindModals();
             this.bindSettings();
+            this.bindAuth();
             this.bindRoomForms();
             this.bindComposer();
             this.bindEmoji();
@@ -165,6 +178,10 @@
             this.startPresence();
             this.checkPairing();
             this.handleUrlActions();
+
+            if (this.authRequired) {
+                setTimeout(() => this.openAuthModal('Veuillez vous connecter pour accéder à ce salon privé.', true), 300);
+            }
         }
 
         // ==============================================================
@@ -267,9 +284,21 @@
 
         renderProfile() {
             const av = $('#profileAvatar');
-            av.textContent = U.initials(this.username);
-            av.style.setProperty('--c', this.avatarColor);
-            $('#profileName').textContent = this.username;
+            if (av) {
+                av.textContent = U.initials(this.username);
+                av.style.setProperty('--c', this.avatarColor);
+            }
+            const pName = $('#profileName');
+            if (pName) pName.textContent = this.username;
+
+            const pSub = $('.profile-chip-sub');
+            if (pSub) {
+                pSub.textContent = this.authUser ? 'Compte actif' : 'Toucher pour personnaliser';
+            }
+
+            if (this.els.btnSidebarAuthText) {
+                this.els.btnSidebarAuthText.textContent = this.authUser ? 'Mon compte' : 'Connexion / Inscription';
+            }
         }
 
         // ==============================================================
@@ -688,19 +717,45 @@
         // Room creation / join
         // ==============================================================
         bindRoomForms() {
+            // Intercept room quick-actions if not logged in
+            $$('.quick-action[data-open="roomModal"]').forEach((b) => {
+                b.addEventListener('click', (e) => {
+                    if (!this.authUser) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        this.openAuthModal('Veuillez créer un compte ou vous connecter pour créer ou rejoindre un salon privé.', true);
+                    }
+                }, true);
+            });
+
             const btn = $('#btnInstantRoom');
             btn.addEventListener('click', async () => {
+                if (!this.authUser) {
+                    this.closeOverlay('roomModal');
+                    this.openAuthModal('Veuillez créer un compte ou vous connecter pour créer un salon privé.', true);
+                    return;
+                }
                 btn.disabled = true;
                 try {
                     const d = await api.createRoom();
                     this.goToRoom(d.room.code);
                 } catch (e) {
                     btn.disabled = false;
-                    toast(e.message, { type: 'err' });
+                    if (e && e.auth_required) {
+                        this.closeOverlay('roomModal');
+                        this.openAuthModal(e.message, true);
+                    } else {
+                        toast(e.message, { type: 'err' });
+                    }
                 }
             });
             $('#formCustomRoom').addEventListener('submit', (e) => {
                 e.preventDefault();
+                if (!this.authUser) {
+                    this.closeOverlay('roomModal');
+                    this.openAuthModal('Veuillez créer un compte ou vous connecter pour créer un salon privé.', true);
+                    return;
+                }
                 const code = U.sanitizeCode($('#customRoomInput').value);
                 if (!code || code === 'public') {
                     toast('Choisissez un autre nom de salon', { type: 'err' });
@@ -710,6 +765,11 @@
             });
             $('#formJoinRoom').addEventListener('submit', (e) => {
                 e.preventDefault();
+                if (!this.authUser) {
+                    this.closeOverlay('roomModal');
+                    this.openAuthModal('Veuillez créer un compte ou vous connecter pour rejoindre un salon privé.', true);
+                    return;
+                }
                 const code = U.sanitizeCode($('#joinRoomInput').value);
                 if (code) this.goToRoom(code);
             });
@@ -749,10 +809,22 @@
 
         async ping() {
             try {
-                const d = await api.presence('ping', this.room, this.username, this.avatarColor);
+                const d = await api.presence('ping', this.room, this.username, this.avatarColor, this.lastId);
                 this.members = d.members || [];
                 this.members.forEach((m) => this.memberColors.set(m.username, m.avatar_color));
                 this.online = d.online_count || 1;
+                if (typeof d.peer_max_read_id === 'number') {
+                    if (d.peer_max_read_id > this.peerMaxReadId) {
+                        this.peerMaxReadId = d.peer_max_read_id;
+                        this.updateAllTicks();
+                    }
+                }
+                if (typeof d.peer_count === 'number') {
+                    if (d.peer_count !== this.peerCount) {
+                        this.peerCount = d.peer_count;
+                        this.updateAllTicks();
+                    }
+                }
                 this.updateOnline();
                 if (this.isOverlayOpen('membersModal')) this.renderMembers();
             } catch (e) { /* offline */ }
@@ -830,15 +902,23 @@
 
         async loadInitial() {
             try {
-                const d = await api.latest(this.room, 60);
+                const d = await api.latest(this.room, 60, this.username);
                 this.hasMore = !!d.has_more;
                 this.sinceTs = d.server_time || '';
+                if (typeof d.peer_max_read_id === 'number') this.peerMaxReadId = d.peer_max_read_id;
+                if (typeof d.peer_count === 'number') this.peerCount = d.peer_count;
                 (d.messages || []).forEach((m) => {
                     this.normalize(m);
                     if (!this.msgs.has(m.id)) this.addMessage(m);
                 });
                 this.regroup();
+                this.updateAllTicks();
+                this.markReadNow();
             } catch (e) {
+                if (e && e.auth_required) {
+                    this.openAuthModal('Compte requis pour accéder à ce salon privé.', true);
+                    return;
+                }
                 toast('Impossible de charger les messages. Nouvel essai…', { type: 'err' });
             }
             this.updateEmpty();
@@ -898,6 +978,20 @@
             es.addEventListener('messages', (e) => {
                 beat();
                 this.onIncoming(parse(e).messages || []);
+                this.markReadNow();
+            });
+            es.addEventListener('read_receipt', (e) => {
+                beat();
+                const d = parse(e);
+                if (typeof d.max_read_id === 'number') this.peerMaxReadId = Math.max(this.peerMaxReadId, d.max_read_id);
+                if (typeof d.peer_count === 'number') this.peerCount = d.peer_count;
+                this.updateAllTicks();
+            });
+            es.addEventListener('messages_updated', (e) => {
+                beat();
+                const d = parse(e);
+                if (d.since_ts) this.sinceTs = d.since_ts;
+                this.onMessagesUpdated(d.messages || []);
             });
             es.addEventListener('reactions', (e) => {
                 beat();
@@ -1079,15 +1173,36 @@
 
         metaHtml(m, mine) {
             let tick = '';
+            const edited = (m._meta && m._meta.edited) ? '<span class="edited-flag">(modifié)</span>' : '';
             if (mine) {
-                if (m._failed) tick = icon('alert', 'tick-failed');
-                else if (m._pending) tick = icon('clock', 'tick-pending');
-                else tick = icon('check');
+                tick = this.tickIcon(m);
             }
-            return `<span class="bubble-meta">${U.esc(U.time(m.created_at))}${tick}</span>`;
+            return `<span class="bubble-meta">${edited}${U.esc(U.time(m.created_at))}${tick}</span>`;
+        }
+
+        tickIcon(m) {
+            if (m._failed) return icon('alert', 'tick-failed');
+            if (m._pending) return icon('clock', 'tick-pending');
+            if (m.id && m.id <= this.peerMaxReadId) return icon('check-check', 'tick-read');
+            if (this.peerCount > 0) return icon('check-check', 'tick-delivered');
+            return icon('check');
+        }
+
+        updateAllTicks() {
+            this.rows.forEach((row, id) => {
+                const m = this.msgs.get(id);
+                if (m && this.isMine(m)) {
+                    const metaEl = row.querySelector('.bubble-meta');
+                    if (metaEl) {
+                        const edited = (m._meta && m._meta.edited) ? '<span class="edited-flag">(modifié)</span>' : '';
+                        metaEl.innerHTML = `${edited}${U.esc(U.time(m.created_at))}${this.tickIcon(m)}`;
+                    }
+                }
+            });
         }
 
         captionOf(m) {
+            if (m.type === 'deleted') return '';
             if (['text', 'link'].includes(m.type)) return m.content || '';
             if (m.type === 'sticker') return '';
             if (m.content && m.content !== m.file_name && !/^vocal_\d+/.test(m.content)) return m.content;
@@ -1103,6 +1218,9 @@
         }
 
         buildContent(m, mine) {
+            if (m.type === 'deleted') {
+                return { rowCls: 'is-deleted', bubbleCls: 'is-deleted', html: `<span class="bubble-text deleted-text">🚫 Ce message a été supprimé</span>` };
+            }
             const meta = m._meta || {};
             const url = U.safeUrl(m.file_url);
             const caption = this.captionOf(m);
@@ -1432,6 +1550,9 @@
                 });
             });
             $('#btnCancelReply').addEventListener('click', () => this.clearReply());
+            if (this.els.btnCancelEdit) {
+                this.els.btnCancelEdit.addEventListener('click', () => this.clearEdit());
+            }
 
             // Paste images / files from clipboard
             window.addEventListener('paste', (e) => {
@@ -1563,6 +1684,21 @@
                 toast('Message trop long (8000 caractères max.)', { type: 'err' });
                 return;
             }
+
+            if (this.editingMsg) {
+                const targetMsg = this.editingMsg;
+                this.clearEdit();
+                api.edit(targetMsg.id, this.room, this.username, text).then((res) => {
+                    if (res && res.success && res.message) {
+                        toast('Message modifié', { type: 'ok' });
+                        this.onMessagesUpdated([res.message]);
+                    }
+                }).catch((err) => {
+                    toast(err && err.message ? err.message : 'Erreur lors de la modification', { type: 'err' });
+                });
+                return;
+            }
+
             input.value = '';
             this.autosize();
             this.updateActionMode();
@@ -2514,6 +2650,8 @@
                 const url = this.fileUrlOf(m);
                 switch (b.dataset.ctx) {
                     case 'reply': this.setReply(m); break;
+                    case 'edit': this.startEdit(m); break;
+                    case 'delete': this.confirmDelete(m); break;
                     case 'copy': OC.copy(this.copyTextOf(m), 'Copié'); break;
                     case 'share': this.shareMessage(m); break;
                     case 'download':
@@ -2547,6 +2685,14 @@
             });
             const hasFile = !!this.fileUrlOf(m) && m.type !== 'sticker';
             const copyText = this.copyTextOf(m);
+            const isMine = this.isMine(m);
+            const isDel = m.type === 'deleted';
+
+            const editBtn = menu.querySelector('[data-ctx="edit"]');
+            const delBtn = menu.querySelector('[data-ctx="delete"]');
+            if (editBtn) editBtn.hidden = !(isMine && !isDel && (m.type === 'text' || m.type === 'link' || this.captionOf(m)));
+            if (delBtn) delBtn.hidden = !(isMine && !isDel);
+
             menu.querySelector('[data-ctx="copy"]').hidden = !copyText;
             $('#ctxCopyLabel').textContent = (m.type === 'text' || this.captionOf(m)) ? 'Copier le texte' : 'Copier le lien';
             menu.querySelector('[data-ctx="download"]').hidden = !(hasFile || m.type === 'album');
@@ -2970,6 +3116,262 @@
             if (source === 'session') {
                 try { sessionStorage.removeItem('openchat_share_payload'); } catch (e) { /* ignore */ }
             }
+        }
+
+        startEdit(m) {
+            if (!m || !this.isMine(m)) return;
+            this.clearReply();
+            this.editingMsg = m;
+            const text = this.captionOf(m) || m.content || '';
+            const eb = this.els.editBar;
+            const ebt = this.els.editBarText;
+            if (eb && ebt) {
+                ebt.textContent = text.slice(0, 70);
+                eb.hidden = false;
+            }
+            this.els.input.value = text;
+            this.autosize();
+            this.updateActionMode();
+            this.els.input.focus();
+        }
+
+        clearEdit() {
+            this.editingMsg = null;
+            if (this.els.editBar) this.els.editBar.hidden = true;
+            this.els.input.value = '';
+            this.autosize();
+            this.updateActionMode();
+        }
+
+        async confirmDelete(m) {
+            if (!m || !this.isMine(m)) return;
+            if (!confirm('Voulez-vous vraiment supprimer ce message pour tout le monde ?')) return;
+            try {
+                const res = await api.delete(m.id, this.room, this.username);
+                if (res && res.success) {
+                    toast('Message supprimé', { type: 'ok' });
+                    m.type = 'deleted';
+                    m.content = 'Ce message a été supprimé';
+                    m.file_url = null;
+                    const row = this.rows.get(m.id);
+                    if (row) {
+                        const bubble = row.querySelector('.bubble');
+                        if (bubble) {
+                            bubble.innerHTML = `<span class="bubble-text deleted-text">🚫 Ce message a été supprimé</span>${this.metaHtml(m, true)}`;
+                            bubble.className = 'bubble is-deleted';
+                        }
+                    }
+                }
+            } catch (e) {
+                toast(e && e.message ? e.message : 'Erreur lors de la suppression', { type: 'err' });
+            }
+        }
+
+        markReadNow() {
+            if (!this.lastId || document.hidden) return;
+            api.markRead(this.room, this.lastId, this.username).catch(() => {});
+        }
+
+        onMessagesUpdated(list) {
+            (list || []).forEach((u) => {
+                const m = this.msgs.get(u.id);
+                if (!m) return;
+                m.content = u.content;
+                m.type = u.type;
+                m.file_url = u.file_url;
+                m.file_name = u.file_name;
+                m.meta = u.meta;
+                m._meta = typeof u.meta === 'string' ? (JSON.parse(u.meta || '{}') || {}) : (u.meta || {});
+                if (u.reactions) {
+                    m.reactions = u.reactions;
+                    m._rx = this.parseReactions(u.reactions);
+                }
+
+                const row = this.rows.get(u.id);
+                if (!row) return;
+
+                const bubble = row.querySelector('.bubble');
+                if (bubble) {
+                    if (m.type === 'deleted') {
+                        bubble.innerHTML = `<span class="bubble-text deleted-text">🚫 Ce message a été supprimé</span>${this.metaHtml(m, this.isMine(m))}`;
+                        bubble.className = 'bubble is-deleted';
+                    } else {
+                        const textEl = bubble.querySelector('.bubble-text:not(.caption)');
+                        const capEl = bubble.querySelector('.caption');
+                        if (textEl && m.type === 'text') {
+                            textEl.innerHTML = `${U.richText(m.content)}<span class="meta-spacer"></span>`;
+                        } else if (capEl) {
+                            capEl.innerHTML = `${U.richText(this.captionOf(m))}<span class="meta-spacer"></span>`;
+                        } else {
+                            const newRow = this.buildRow(m);
+                            row.replaceWith(newRow);
+                            this.rows.set(m.id, newRow);
+                            this.afterRender(newRow, m);
+                            return;
+                        }
+                        const metaEl = bubble.querySelector('.bubble-meta');
+                        if (metaEl) {
+                            const edited = (m._meta && m._meta.edited) ? '<span class="edited-flag">(modifié)</span>' : '';
+                            metaEl.innerHTML = `${edited}${U.esc(U.time(m.created_at))}${this.isMine(m) ? this.tickIcon(m) : ''}`;
+                        }
+                    }
+                }
+            });
+        }
+
+        bindAuth() {
+            const authModal = $('#authModal');
+            if (!authModal) return;
+
+            if (this.els.btnSidebarAuth) {
+                this.els.btnSidebarAuth.addEventListener('click', () => {
+                    this.openAuthModal();
+                });
+            }
+
+            const tabLogin = $('#tabAuthLogin');
+            const tabRegister = $('#tabAuthRegister');
+            const grpEmail = $('#groupAuthEmail');
+            const grpColor = $('#groupAuthColor');
+            const btnSubmit = $('#btnSubmitAuth');
+            const form = $('#formAuth');
+            const errEl = $('#authError');
+            let currentTab = 'login';
+
+            const setTab = (tab) => {
+                currentTab = tab;
+                if (errEl) errEl.style.display = 'none';
+                if (tab === 'register') {
+                    tabRegister.classList.add('active');
+                    tabLogin.classList.remove('active');
+                    if (grpEmail) grpEmail.style.display = 'block';
+                    if (grpColor) grpColor.style.display = 'block';
+                    btnSubmit.textContent = 'Créer mon compte';
+                } else {
+                    tabLogin.classList.add('active');
+                    tabRegister.classList.remove('active');
+                    if (grpEmail) grpEmail.style.display = 'none';
+                    if (grpColor) grpColor.style.display = 'none';
+                    btnSubmit.textContent = 'Se connecter';
+                }
+            };
+
+            if (tabLogin) tabLogin.addEventListener('click', () => setTab('login'));
+            if (tabRegister) tabRegister.addEventListener('click', () => setTab('register'));
+
+            const swatches = $('#authColorSwatches');
+            if (swatches) {
+                const colors = ['#10b981', '#06b6d4', '#3b82f6', '#8b5cf6', '#ec4899', '#f97316', '#eab308'];
+                swatches.innerHTML = colors.map((c, i) => `
+                    <button type="button" class="swatch-btn ${i === 0 ? 'active' : ''}" data-color="${c}" style="width: 28px; height: 28px; border-radius: 50%; background: ${c}; border: 2px solid ${i === 0 ? '#fff' : 'transparent'}; cursor: pointer;"></button>
+                `).join('');
+                swatches.addEventListener('click', (e) => {
+                    const btn = e.target.closest('.swatch-btn');
+                    if (!btn) return;
+                    swatches.querySelectorAll('.swatch-btn').forEach(b => { b.style.borderColor = 'transparent'; b.classList.remove('active'); });
+                    btn.classList.add('active');
+                    btn.style.borderColor = '#ffffff';
+                    this._authSelectedColor = btn.dataset.color;
+                });
+                this._authSelectedColor = colors[0];
+            }
+
+            const btnLogout = $('#btnAuthLogout');
+            if (btnLogout) {
+                btnLogout.addEventListener('click', async () => {
+                    try {
+                        await api.auth.logout();
+                        this.authUser = null;
+                        this.renderProfile();
+                        this.closeOverlay('authModal');
+                        toast('Déconnecté', { type: 'ok' });
+                        if (!this.isPublic) {
+                            setTimeout(() => { location.href = 'index.php?code=public'; }, 300);
+                        }
+                    } catch (e) {
+                        toast('Erreur lors de la déconnexion', { type: 'err' });
+                    }
+                });
+            }
+
+            if (form) {
+                form.addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    if (errEl) errEl.style.display = 'none';
+                    const username = $('#authUsername').value.trim();
+                    const password = $('#authPassword').value;
+                    const email = $('#authEmail') ? $('#authEmail').value.trim() : '';
+                    const color = this._authSelectedColor || '#10b981';
+
+                    btnSubmit.disabled = true;
+                    btnSubmit.textContent = 'Patientez…';
+
+                    try {
+                        let res;
+                        if (currentTab === 'register') {
+                            res = await api.auth.register(username, password, email, color);
+                        } else {
+                            res = await api.auth.login(username, password);
+                        }
+
+                        if (res.success && res.user) {
+                            this.authUser = res.user;
+                            this.username = res.user.username;
+                            this.avatarColor = res.user.avatar_color || color;
+                            store.set('openchat_username', this.username);
+                            store.set('openchat_avatar_color', this.avatarColor);
+                            this.myNames.add(this.username);
+                            this.renderProfile();
+                            toast(currentTab === 'register' ? 'Compte créé avec succès 🎉' : 'Connexion réussie 👋', { type: 'ok' });
+                            this.closeOverlay('authModal');
+
+                            if (this.authRequired) {
+                                this.authRequired = false;
+                                this.loadInitial();
+                                this.connect();
+                            }
+                        }
+                    } catch (err) {
+                        if (errEl) {
+                            errEl.textContent = err.message || 'Une erreur est survenue';
+                            errEl.style.display = 'block';
+                        }
+                    } finally {
+                        btnSubmit.disabled = false;
+                        btnSubmit.textContent = currentTab === 'register' ? 'Créer mon compte' : 'Se connecter';
+                    }
+                });
+            }
+        }
+
+        openAuthModal(reason = '', required = false) {
+            const banner = $('#authBanner');
+            if (banner) {
+                banner.style.display = reason ? 'block' : 'none';
+                if (reason) banner.innerHTML = `🔒 <strong>Accès sécurisé</strong> : ${U.esc(reason)}`;
+            }
+
+            const loggedSec = $('#authLoggedSection');
+            const formSec = $('#authFormSection');
+            if (this.authUser) {
+                if (loggedSec) loggedSec.style.display = 'block';
+                if (formSec) formSec.style.display = 'none';
+                const av = $('#authLoggedAvatar');
+                const un = $('#authLoggedUsername');
+                const em = $('#authLoggedEmail');
+                if (av) {
+                    av.textContent = U.initials(this.authUser.username);
+                    av.style.setProperty('--c', this.authUser.avatar_color || '#10b981');
+                    av.style.backgroundColor = this.authUser.avatar_color || '#10b981';
+                }
+                if (un) un.textContent = this.authUser.username;
+                if (em) em.textContent = this.authUser.email || 'Compte actif';
+            } else {
+                if (loggedSec) loggedSec.style.display = 'none';
+                if (formSec) formSec.style.display = 'block';
+            }
+
+            this.openModal('authModal');
         }
     }
 

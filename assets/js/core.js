@@ -341,29 +341,52 @@
     }
 
     OC.api = {
-        latest(room, limit = 60) {
-            return json(`api/messages.php?code=${encodeURIComponent(room)}&latest=1&limit=${limit}`);
+        latest(room, limit = 60, user = '') {
+            return json(`api/messages.php?code=${encodeURIComponent(room)}&latest=1&limit=${limit}&user=${encodeURIComponent(user)}`);
         },
         before(room, beforeId, limit = 40) {
             return json(`api/messages.php?code=${encodeURIComponent(room)}&before_id=${beforeId}&limit=${limit}`);
         },
-        since(room, sinceId) {
-            return json(`api/messages.php?code=${encodeURIComponent(room)}&since_id=${sinceId}&limit=100`);
+        since(room, sinceId, user = '') {
+            return json(`api/messages.php?code=${encodeURIComponent(room)}&since_id=${sinceId}&limit=100&user=${encodeURIComponent(user)}`);
         },
         send(payload) {
             return json('api/messages.php', { method: 'POST', body: JSON.stringify(payload) });
         },
+        edit(messageId, room, sender, content) {
+            return json('api/messages.php', { method: 'POST', body: JSON.stringify({ action: 'edit', message_id: messageId, room_code: room, sender, content }) });
+        },
+        delete(messageId, room, sender) {
+            return json('api/messages.php', { method: 'POST', body: JSON.stringify({ action: 'delete', message_id: messageId, room_code: room, sender }) });
+        },
+        markRead(room, lastReadId, username) {
+            return json('api/presence.php', { method: 'POST', body: JSON.stringify({ action: 'read', room_code: room, username, last_read_id: lastReadId }) });
+        },
         react(messageId, emoji, username) {
             return json('api/messages.php', { method: 'POST', body: JSON.stringify({ action: 'react', message_id: messageId, emoji, username }) });
         },
-        presence(action, room, username, color) {
-            return json('api/presence.php', { method: 'POST', body: JSON.stringify({ action, room_code: room, username, color }) });
+        presence(action, room, username, color, lastReadId = 0) {
+            return json('api/presence.php', { method: 'POST', body: JSON.stringify({ action, room_code: room, username, color, last_read_id: lastReadId }) });
         },
         createRoom(code = '') {
             return json('api/rooms.php', { method: 'POST', body: JSON.stringify(code ? { code } : {}) });
         },
         linkPreview(url) {
             return json(`api/link_preview.php?url=${encodeURIComponent(url)}`);
+        },
+        auth: {
+            me() {
+                return json('api/auth.php?action=me');
+            },
+            register(username, password, email = null, avatarColor = '#10b981') {
+                return json('api/auth.php', { method: 'POST', body: JSON.stringify({ action: 'register', username, password, email, avatar_color: avatarColor }) });
+            },
+            login(username, password) {
+                return json('api/auth.php', { method: 'POST', body: JSON.stringify({ action: 'login', username, password }) });
+            },
+            logout() {
+                return json('api/auth.php', { method: 'POST', body: JSON.stringify({ action: 'logout' }) });
+            }
         },
 
         /** XHR upload with progress + abort. Returns { promise, abort }. */

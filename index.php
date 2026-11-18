@@ -9,6 +9,8 @@ declare(strict_types=1);
 require_once __DIR__ . '/includes/Config.php';
 require_once __DIR__ . '/includes/Database.php';
 
+$authUser = Database::getAuthUser();
+
 // Determine initial room: defaults to 'public' if no code provided
 $requestedCode = Database::sanitizeCode((string)($_GET['code'] ?? ''));
 if ($requestedCode === '') {
@@ -18,6 +20,7 @@ if ($requestedCode === '') {
 $room = Database::getOrCreateRoom($requestedCode, $requestedCode === 'public' ? 'Salon Public Général' : '');
 $isPublicRoom = ($room['code'] === 'public');
 $roomCode = (string)$room['code'];
+$authRequired = (!$isPublicRoom && !$authUser);
 
 $pageTitle = $isPublicRoom ? 'OpenChat - Chat & Partage Instantané Sans Inscription' : 'Salon ' . $roomCode . ' - OpenChat';
 $pageDesc = 'Partagez en 1 seconde des messages, liens, photos, vocaux et fichiers entre PC et smartphone ou avec vos amis, sans compte ni mot de passe.';
@@ -133,6 +136,7 @@ $e = static fn(string $s): string => htmlspecialchars($s, ENT_QUOTES, 'UTF-8');
         <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></symbol>
         <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9.5"/><path d="M12 2.5a14.5 14.5 0 0 0 0 19 14.5 14.5 0 0 0 0-19M2.5 12h19"/></symbol>
         <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6"/></symbol>
+        <symbol id="i-edit" viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></symbol>
         <symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
         <symbol id="i-chevron-up" viewBox="0 0 24 24"><path d="m18 15-6-6-6 6"/></symbol>
         <symbol id="i-chevron-left" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
@@ -228,6 +232,10 @@ $e = static fn(string $s): string => htmlspecialchars($s, ENT_QUOTES, 'UTF-8');
                     <span class="profile-chip-sub">Toucher pour personnaliser</span>
                 </span>
                 <svg class="ic ic-sm muted"><use href="#i-chevron-right"/></svg>
+            </button>
+            <button type="button" class="btn btn-soft btn-sm btn-block" id="btnSidebarAuth" style="margin-top: 8px;">
+                <svg class="ic ic-sm"><use href="#i-user"/></svg>
+                <span id="btnSidebarAuthText"><?= $authUser ? 'Mon compte' : 'Connexion / Inscription' ?></span>
             </button>
             <div class="sidebar-foot-row">
                 <button type="button" class="btn btn-soft btn-sm" id="btnInstallSidebar" hidden>
@@ -374,6 +382,15 @@ $e = static fn(string $s): string => htmlspecialchars($s, ENT_QUOTES, 'UTF-8');
                 <button type="button" class="icon-btn icon-btn-sm" id="btnCancelReply" aria-label="Annuler la réponse"><svg class="ic ic-sm"><use href="#i-x"/></svg></button>
             </div>
 
+            <div class="reply-bar edit-bar" id="editBar" hidden>
+                <svg class="ic ic-sm accent"><use href="#i-edit"/></svg>
+                <div class="reply-bar-body">
+                    <div class="reply-bar-name">Modifier le message</div>
+                    <div class="reply-bar-text" id="editBarText"></div>
+                </div>
+                <button type="button" class="icon-btn icon-btn-sm" id="btnCancelEdit" aria-label="Annuler la modification"><svg class="ic ic-sm"><use href="#i-x"/></svg></button>
+            </div>
+
             <div class="composer-row" id="composerRow">
                 <div class="composer-box" id="composerBox">
                     <button type="button" class="icon-btn composer-btn" id="btnEmoji" aria-label="Emojis et stickers" title="Emojis et stickers">
@@ -491,10 +508,12 @@ $e = static fn(string $s): string => htmlspecialchars($s, ENT_QUOTES, 'UTF-8');
         </div>
         <div class="ctx-actions">
             <button type="button" class="ctx-item" data-ctx="reply"><svg class="ic"><use href="#i-reply"/></svg> Répondre</button>
+            <button type="button" class="ctx-item" data-ctx="edit"><svg class="ic"><use href="#i-edit"/></svg> Modifier</button>
             <button type="button" class="ctx-item" data-ctx="copy"><svg class="ic"><use href="#i-copy"/></svg> <span id="ctxCopyLabel">Copier</span></button>
             <button type="button" class="ctx-item" data-ctx="share"><svg class="ic"><use href="#i-forward"/></svg> Partager…</button>
             <button type="button" class="ctx-item" data-ctx="download"><svg class="ic"><use href="#i-download"/></svg> Télécharger</button>
             <button type="button" class="ctx-item" data-ctx="open"><svg class="ic"><use href="#i-external"/></svg> Ouvrir</button>
+            <button type="button" class="ctx-item ctx-item-danger" data-ctx="delete"><svg class="ic"><use href="#i-trash"/></svg> Supprimer</button>
         </div>
     </div>
 </div>
@@ -711,6 +730,71 @@ $e = static fn(string $s): string => htmlspecialchars($s, ENT_QUOTES, 'UTF-8');
     </div>
 </div>
 
+<!-- Auth modal: Login / Register -->
+<div class="modal" id="authModal" role="dialog" aria-modal="true" aria-labelledby="authModalTitle" hidden>
+    <div class="modal-card">
+        <div class="modal-grabber"></div>
+        <div class="modal-head">
+            <h2 id="authModalTitle">Mon Compte</h2>
+            <button type="button" class="icon-btn" data-close aria-label="Fermer"><svg class="ic"><use href="#i-x"/></svg></button>
+        </div>
+
+        <div class="auth-banner" id="authBanner" style="display:none; padding: 10px 14px; background: rgba(56, 189, 248, 0.12); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 12px; margin-bottom: 12px; font-size: 0.88rem; color: #38bdf8;">
+            🔒 <strong>Compte requis</strong> : Un compte gratuit est nécessaire pour créer et rejoindre des salons privés.
+        </div>
+
+        <div id="authLoggedSection" style="display:none;">
+            <div style="display: flex; align-items: center; gap: 14px; padding: 16px; background: var(--bg-hover); border-radius: 14px; margin-bottom: 16px;">
+                <span class="avatar avatar-lg" id="authLoggedAvatar" style="width: 52px; height: 52px; font-size: 1.4rem;">?</span>
+                <div style="flex: 1; min-width: 0;">
+                    <div style="font-weight: 700; font-size: 1.1rem;" id="authLoggedUsername">Utilisateur</div>
+                    <div style="color: var(--text-muted); font-size: 0.82rem;" id="authLoggedEmail">Compte actif</div>
+                </div>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-soft" data-close>Fermer</button>
+                <button type="button" class="btn btn-danger-soft" id="btnAuthLogout"><svg class="ic ic-sm"><use href="#i-logout"/></svg> Se déconnecter</button>
+            </div>
+        </div>
+
+        <div id="authFormSection">
+            <div class="segmented" role="tablist">
+                <button type="button" class="segment active" id="tabAuthLogin" data-auth-tab="login" role="tab">Connexion</button>
+                <button type="button" class="segment" id="tabAuthRegister" data-auth-tab="register" role="tab">Créer un compte</button>
+            </div>
+
+            <form id="formAuth" autocomplete="on" style="margin-top: 14px;">
+                <div class="form-group">
+                    <label for="authUsername" id="labelAuthUsername">Nom d'utilisateur</label>
+                    <input type="text" id="authUsername" class="input" placeholder="Votre pseudo" required autocomplete="username" minlength="3" maxlength="30">
+                </div>
+
+                <div class="form-group" id="groupAuthEmail" style="display:none; margin-top: 10px;">
+                    <label for="authEmail">Adresse email <span class="muted">(facultatif)</span></label>
+                    <input type="email" id="authEmail" class="input" placeholder="email@exemple.com" autocomplete="email">
+                </div>
+
+                <div class="form-group" style="margin-top: 10px;">
+                    <label for="authPassword">Mot de passe</label>
+                    <input type="password" id="authPassword" class="input" placeholder="Au moins 4 caractères" required autocomplete="current-password" minlength="4">
+                </div>
+
+                <div class="form-group" id="groupAuthColor" style="display:none; margin-top: 12px;">
+                    <label>Couleur d'avatar</label>
+                    <div class="color-swatches" id="authColorSwatches" style="display:flex; gap: 8px; margin-top: 6px;"></div>
+                </div>
+
+                <div class="auth-error" id="authError" style="display:none; color: #ef4444; font-size: 0.85rem; margin-top: 10px; font-weight: 500; padding: 6px 10px; background: rgba(239, 68, 68, 0.1); border-radius: 8px;"></div>
+
+                <div class="modal-actions" style="margin-top: 18px;">
+                    <button type="button" class="btn btn-soft" data-close>Annuler</button>
+                    <button type="submit" class="btn btn-primary" id="btnSubmitAuth">Se connecter</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
 <div class="toasts" id="toasts" aria-live="polite"></div>
 
 <script>
@@ -719,7 +803,9 @@ $e = static fn(string $s): string => htmlspecialchars($s, ENT_QUOTES, 'UTF-8');
         isPublic: <?= $isPublicRoom ? 'true' : 'false' ?>,
         shareUrl: <?= json_encode($shareUrl, JSON_UNESCAPED_SLASHES) ?>,
         maxFileMb: <?= (int)Config::MAX_FILE_SIZE_MB ?>,
-        retentionHours: <?= (int)Config::MESSAGE_RETENTION_HOURS ?>
+        retentionHours: <?= (int)Config::MESSAGE_RETENTION_HOURS ?>,
+        authRequired: <?= $authRequired ? 'true' : 'false' ?>,
+        authUser: <?= json_encode($authUser) ?>
     };
 </script>
 <script src="<?= $asset('assets/js/qrcode.min.js') ?>" defer></script>

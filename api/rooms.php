@@ -29,6 +29,15 @@ function generateRandomRoomCode(): string {
 }
 
 if ($method === 'POST') {
+    $authUser = Database::getAuthUser();
+    if (!$authUser) {
+        Config::jsonResponse([
+            'success' => false,
+            'error' => 'Veuillez créer un compte ou vous connecter pour créer un salon privé.',
+            'auth_required' => true
+        ], 401);
+    }
+
     $rawInput = file_get_contents('php://input');
     $data = json_decode($rawInput, true) ?? $_POST;
 
@@ -57,6 +66,18 @@ if ($method === 'GET') {
     $code = trim($_GET['code'] ?? '');
     if (empty($code)) {
         Config::jsonResponse(['success' => false, 'error' => 'Code de salon manquant.'], 400);
+    }
+
+    // Public room is open to everyone; private rooms require an account
+    if ($code !== 'public') {
+        $authUser = Database::getAuthUser();
+        if (!$authUser) {
+            Config::jsonResponse([
+                'success' => false,
+                'error' => 'Veuillez créer un compte ou vous connecter pour accéder à ce salon privé.',
+                'auth_required' => true
+            ], 401);
+        }
     }
 
     $room = Database::getOrCreateRoom($code);
