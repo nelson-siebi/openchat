@@ -33,6 +33,7 @@
     // ==================================================================
     class App {
         constructor() {
+            this.isWelcome = !!CFG.isWelcome;
             this.room = CFG.room || 'public';
             this.isPublic = !!CFG.isPublic;
             this.shareUrl = CFG.shareUrl || location.href;
@@ -179,6 +180,15 @@
             this.bindPublicAccess();
             this.bindAdminPublicCode();
             this.bindMembers();
+
+            if (this.isWelcome) {
+                this.renderWelcomeRecent();
+                const btnAuthWelcome = $('#btnWelcomeAuth');
+                if (btnAuthWelcome) {
+                    btnAuthWelcome.addEventListener('click', () => this.openAuthModal());
+                }
+                return; // On the welcome page, do not connect to chat stream or load room messages
+            }
 
             if (!this.authRequired && !this.publicAccessRequired) {
                 this.hasStartedLoading = true;
@@ -386,6 +396,42 @@
                     if (el) { el.style.setProperty('--c1', a); el.style.setProperty('--c2', b); }
                 });
             }
+        }
+
+        renderWelcomeRecent() {
+            const sec = $('#welcomeRecentSection');
+            const grid = $('#welcomeRecentGrid');
+            if (!sec || !grid) return;
+            const recents = this.recentRooms();
+            if (!recents || recents.length === 0) {
+                sec.style.display = 'none';
+                return;
+            }
+            sec.style.display = 'flex';
+            grid.innerHTML = recents.slice(0, 6).map((r) => {
+                const isDm = r.code.startsWith('dm-');
+                const title = r.targetUser ? `💬 ${r.targetUser}` : (r.title || r.code);
+                const desc = isDm ? `Discussion privée avec ${r.targetUser || 'un utilisateur'}` : `Salon privé #${r.code}`;
+                const agoText = r.at ? 'Visité ' + U.ago(r.at) : 'Récemment';
+                return `
+                    <a href="index.php?code=${encodeURIComponent(r.code)}" class="public-room-card">
+                        <div class="public-room-card-head">
+                            <span class="room-avatar room-avatar-lg" style="background: ${isDm ? '#6366f1' : '#10b981'}; color:#fff;">
+                                ${isDm ? icon('user') : icon('message')}
+                            </span>
+                            <div>
+                                <h3 class="public-room-card-title">${U.esc(title)}</h3>
+                                <div style="font-size:0.8rem; color:var(--text-muted); margin-top:2px;">${isDm ? 'Message privé' : '#' + U.esc(r.code)}</div>
+                            </div>
+                        </div>
+                        <p class="public-room-card-desc">${U.esc(desc)}</p>
+                        <div class="public-room-card-foot">
+                            <span>${U.esc(agoText)}</span>
+                            <span class="btn btn-soft btn-xs">Reprendre ➔</span>
+                        </div>
+                    </a>
+                `;
+            }).join('');
         }
 
         bindLayout() {

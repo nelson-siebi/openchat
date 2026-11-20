@@ -198,7 +198,28 @@ class Database
         }
 
         // Automatically promote any existing Nelson account to admin
-        $db->exec("UPDATE users SET is_admin = 1 WHERE LOWER(username) IN ('nelson', 'nelson pro', 'nelsonpro', 'nelson-pro', 'nelsonsiebi', 'nelson siebi', 'nelsontest') OR LOWER(email) LIKE 'nelson%'");
+        $db->exec("UPDATE users SET is_admin = 1 WHERE LOWER(username) IN ('nelson', 'nelson pro', 'nelsonpro', 'nelson-pro', 'nelsonsiebi', 'nelsonsiebi@gmail.com', 'nelson siebi', 'nelsontest') OR LOWER(email) LIKE 'nelson%'");
+
+        // Migration: Convert legacy public room into private room 'nelson-private' and prepare fresh public room
+        $migrated = $db->query("SELECT setting_value FROM app_settings WHERE setting_key = 'migrated_public_to_private' LIMIT 1")->fetchColumn();
+        if ($migrated !== '1') {
+            $stmt = $db->prepare("SELECT COUNT(*) FROM messages WHERE room_code = 'public'");
+            $stmt->execute();
+            $publicMsgCount = (int)$stmt->fetchColumn();
+            if ($publicMsgCount > 0) {
+                // Rename old public room and its messages to nelson-private
+                $db->exec("UPDATE rooms SET code = 'nelson-private', title = 'Salon Privé Nelson' WHERE code = 'public'");
+                $db->exec("UPDATE messages SET room_code = 'nelson-private' WHERE room_code = 'public'");
+                $db->exec("UPDATE room_presence SET room_code = 'nelson-private' WHERE room_code = 'public'");
+            }
+            // Re-create the clean new public room
+            $db->exec("INSERT OR IGNORE INTO rooms (code, title, created_at, last_activity) VALUES ('public', 'Salon Public Général', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)");
+            // Ensure additional public rooms exist for discovery
+            $db->exec("INSERT OR IGNORE INTO rooms (code, title, created_at, last_activity) VALUES ('entraide', 'Entraide & Tech', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)");
+            $db->exec("INSERT OR IGNORE INTO rooms (code, title, created_at, last_activity) VALUES ('partage-express', 'Partage Express & Médias', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)");
+
+            $db->exec("INSERT OR REPLACE INTO app_settings (setting_key, setting_value, updated_at) VALUES ('migrated_public_to_private', '1', CURRENT_TIMESTAMP)");
+        }
 
         $db->exec("CREATE INDEX IF NOT EXISTS idx_messages_room_updated ON messages (room_code, updated_at)");
     }
@@ -241,6 +262,31 @@ class Database
             'created_at' => gmdate('Y-m-d H:i:s'),
             'last_activity' => gmdate('Y-m-d H:i:s')
         ];
+    }
+
+    public static function getPublicRooms(): array
+    {
+        $db = self::getConnection();
+        $stmt = $db->query("
+            SELECT r.code, r.title, r.last_activity,
+                   (SELECT COUNT(*) FROM room_presence p WHERE p.room_code = r.code AND p.last_seen >= datetime('now', '-5 minutes')) AS online_count,
+                   (SELECT COUNT(*) FROM messages m WHERE m.room_code = r.code) AS message_count
+            FROM rooms r
+            WHERE r.code IN ('public', 'entraide', 'partage-express')
+               OR (r.code NOT LIKE 'dm-%' AND r.code NOT LIKE '%private%' AND r.code NOT LIKE 'nelson%')
+            GROUP BY r.code
+            ORDER BY CASE WHEN r.code = 'public' THEN 0 WHEN r.code = 'entraide' THEN 1 WHEN r.code = 'partage-express' THEN 2 ELSE 3 END, r.last_activity DESC
+            LIMIT 6
+        ");
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        if (empty($rows)) {
+            return [
+                ['code' => 'public', 'title' => 'Salon Public Général', 'online_count' => 1, 'message_count' => 0],
+                ['code' => 'entraide', 'title' => 'Entraide & Tech', 'online_count' => 0, 'message_count' => 0],
+                ['code' => 'partage-express', 'title' => 'Partage Express & Médias', 'online_count' => 0, 'message_count' => 0],
+            ];
+        }
+        return $rows;
     }
 
     /**
@@ -655,12 +701,13 @@ class Database
         if (!preg_match('/^#[0-9a-f]{6}$/i', $avatarColor)) $avatarColor = '#10b981';
         $db = self::getConnection();
 
-        // Check if user was already active recently
-        $check = $db->prepare("SELECT CAST((strftime('%s', 'now') - strftime('%s', last_seen)) AS INTEGER) AS secs FROM room_presence WHERE room_code = :room AND username = :user LIMIT 1");
+        // Check if user was already active in this room
+        $check = $db->prepare("SELECT id FROM room_presence WHERE room_code = :room AND LOWER(username) = LOWER(:user) LIMIT 1");
         $check->execute([':room' => $roomCode, ':user' => $username]);
         $existing = $check->fetch();
 
-        $isNewJoin = !$existing || (int)$existing['secs'] > 120;
+        $isFirstJoin = !$existing;
+        $isDm = str_starts_with($roomCode, 'dm-');
 
         // Upsert presence with optional last_read_id
         $stmt = $db->prepare("
@@ -673,8 +720,8 @@ class Database
         ");
         $stmt->execute([':room' => $roomCode, ':user' => $username, ':color' => $avatarColor, ':read_id' => $lastReadId]);
 
-        // If new join, create system announcement message
-        if ($isNewJoin && $roomCode !== 'public') {
+        // Announce ONLY once on genuine first join, never in 1-on-1 DMs, and not for generic Invité
+        if ($isFirstJoin && !$isDm && $roomCode !== 'public' && $username !== 'Invité') {
             self::addMessage(
                 roomCode: $roomCode,
                 sender: 'Système',

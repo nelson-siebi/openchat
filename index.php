@@ -13,50 +13,66 @@ $authUser = Database::getAuthUser();
 $isNelsonAdmin = Database::isNelsonAdmin($authUser);
 $hasPublicAccess = Database::hasPublicAccess($authUser);
 
-// Determine initial room: defaults to 'public' if no code provided
-$requestedCode = Database::sanitizeCode((string)($_GET['code'] ?? ''));
-if ($requestedCode === '') {
-    $requestedCode = 'public';
-}
+// Determine whether to display the Welcome Hub or an active room
+$hasExplicitCode = isset($_GET['code']) && trim((string)$_GET['code']) !== '';
+$isWelcome = !$hasExplicitCode;
+$requestedCode = $hasExplicitCode ? Database::sanitizeCode((string)$_GET['code']) : '';
 
-$room = Database::getOrCreateRoom($requestedCode, $requestedCode === 'public' ? 'Salon Public Général' : '');
-$isPublicRoom = ($room['code'] === 'public');
-$roomCode = (string)$room['code'];
-$isDmRoom = str_starts_with($roomCode, 'dm-');
-$dmTargetUser = '';
-$dmTargetUserColor = '#6366f1';
-if ($isDmRoom && !empty($room['title']) && str_starts_with($room['title'], 'DM:')) {
-    $parts = explode(':', substr($room['title'], 3));
-    if (count($parts) >= 2) {
-        $uCurrent = strtolower((string)($authUser['username'] ?? ''));
-        $targetName = ($uCurrent === strtolower($parts[0])) ? $parts[1] : $parts[0];
-        $tUser = Database::getUserByName($targetName);
-        if ($tUser) {
-            $dmTargetUser = $tUser['username'];
-            $dmTargetUserColor = $tUser['avatar_color'] ?? '#6366f1';
-        } else {
-            $dmTargetUser = $targetName;
+$publicRooms = Database::getPublicRooms();
+
+if ($isWelcome) {
+    $roomCode = '';
+    $room = ['code' => '', 'title' => 'Accueil OpenChat'];
+    $isPublicRoom = false;
+    $isDmRoom = false;
+    $dmTargetUser = '';
+    $dmTargetUserColor = '#6366f1';
+    $roomDisplayTitle = 'Accueil';
+    $authRequired = false;
+    $publicAccessRequired = false;
+    $pageTitle = 'OpenChat - Chat & Partage Instantané PWA Sans Inscription';
+    $shareUrl = Config::getBaseUrl() . '/index.php';
+} else {
+    $room = Database::getOrCreateRoom($requestedCode, $requestedCode === 'public' ? 'Salon Public Général' : '');
+    $isPublicRoom = ($room['code'] === 'public');
+    $roomCode = (string)$room['code'];
+    $isDmRoom = str_starts_with($roomCode, 'dm-');
+    $dmTargetUser = '';
+    $dmTargetUserColor = '#6366f1';
+    if ($isDmRoom && !empty($room['title']) && str_starts_with($room['title'], 'DM:')) {
+        $parts = explode(':', substr($room['title'], 3));
+        if (count($parts) >= 2) {
+            $uCurrent = strtolower((string)($authUser['username'] ?? ''));
+            $targetName = ($uCurrent === strtolower($parts[0])) ? $parts[1] : $parts[0];
+            $tUser = Database::getUserByName($targetName);
+            if ($tUser) {
+                $dmTargetUser = $tUser['username'];
+                $dmTargetUserColor = $tUser['avatar_color'] ?? '#6366f1';
+            } else {
+                $dmTargetUser = $targetName;
+            }
         }
     }
-}
-$roomDisplayTitle = $isPublicRoom 
-    ? 'Salon public' 
-    : ($isDmRoom 
-        ? ($dmTargetUser ? 'Discussion avec ' . $dmTargetUser : 'Discussion privée') 
-        : (!empty($room['title']) && $room['title'] !== 'Salon ' . strtoupper($roomCode) ? $room['title'] : $roomCode));
-$authRequired = ($isDmRoom && !$authUser);
-$publicAccessRequired = ($isPublicRoom && !Database::hasPublicAccess($authUser));
+    $roomDisplayTitle = $isPublicRoom 
+        ? 'Salon public' 
+        : ($isDmRoom 
+            ? ($dmTargetUser ? 'Discussion avec ' . $dmTargetUser : 'Discussion privée') 
+            : (!empty($room['title']) && $room['title'] !== 'Salon ' . strtoupper($roomCode) ? $room['title'] : $roomCode));
+    $authRequired = ($isDmRoom && !$authUser);
+    $publicAccessRequired = ($isPublicRoom && !Database::hasPublicAccess($authUser));
 
-$pageTitle = $isPublicRoom 
-    ? 'OpenChat - Chat & Partage Instantané Sans Inscription' 
-    : ($isDmRoom 
-        ? ($dmTargetUser ? 'Discussion avec ' . $dmTargetUser . ' - OpenChat' : 'Discussion privée - OpenChat') 
-        : 'Salon ' . $roomCode . ' - OpenChat');
+    $pageTitle = $isPublicRoom 
+        ? 'Salon Public - OpenChat' 
+        : ($isDmRoom 
+            ? ($dmTargetUser ? 'Discussion avec ' . $dmTargetUser . ' - OpenChat' : 'Discussion privée - OpenChat') 
+            : 'Salon ' . $roomCode . ' - OpenChat');
+    $shareUrl = Config::getBaseUrl() . '/index.php?code=' . urlencode($roomCode);
+}
+
 $pageDesc = 'Partagez en 1 seconde des messages, liens, photos, vocaux et fichiers entre PC et smartphone ou avec vos amis, sans compte ni mot de passe.';
 $baseUrl = Config::getBaseUrl();
-$canonicalUrl = $baseUrl . '/index.php' . ($isPublicRoom ? '' : '?code=' . urlencode($roomCode));
+$canonicalUrl = $baseUrl . '/index.php' . ($isWelcome ? '' : '?code=' . urlencode($roomCode));
 $ogImage = $baseUrl . '/assets/img/logo.png';
-$shareUrl = $baseUrl . '/index.php?code=' . urlencode($roomCode);
 
 $asset = static function (string $path): string {
     $full = __DIR__ . '/' . $path;
@@ -203,6 +219,9 @@ $e = static fn(string $s): string => htmlspecialchars($s, ENT_QUOTES, 'UTF-8');
         <symbol id="i-palette" viewBox="0 0 24 24"><circle cx="13.5" cy="6.5" r="1.2"/><circle cx="17.5" cy="10.5" r="1.2"/><circle cx="8.5" cy="7.5" r="1.2"/><circle cx="6.5" cy="12.5" r="1.2"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.93 0 1.65-.75 1.65-1.69 0-.44-.18-.84-.44-1.13-.29-.29-.44-.65-.44-1.13a1.64 1.64 0 0 1 1.67-1.67h2c3.05 0 5.56-2.5 5.56-5.55C21.97 6.01 17.46 2 12 2z"/></symbol>
         <symbol id="i-volume" viewBox="0 0 24 24"><path d="M11 4.7a.7.7 0 0 0-1.2-.5L6.4 7.6A1.4 1.4 0 0 1 5.4 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.4a1.4 1.4 0 0 1 1 .4l3.4 3.4a.7.7 0 0 0 1.2-.5ZM16 9a5 5 0 0 1 0 6M19.4 18.4a9 9 0 0 0 0-12.8"/></symbol>
         <symbol id="i-hd" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="3"/><path d="M7 9v6M11 9v6M7 12h4M14.5 9v6h1.5a3 3 0 0 0 0-6Z"/></symbol>
+        <symbol id="i-home" viewBox="0 0 24 24"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></symbol>
+        <symbol id="i-compass" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></symbol>
+        <symbol id="i-zap" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></symbol>
     </defs>
 </svg>
 
@@ -246,14 +265,21 @@ $e = static fn(string $s): string => htmlspecialchars($s, ENT_QUOTES, 'UTF-8');
         </div>
 
         <nav class="room-list" id="roomList">
-            <a href="index.php?code=public" class="room-item <?= $isPublicRoom ? 'active' : '' ?>" data-code="public">
+            <a href="index.php" class="room-item <?= $isWelcome ? 'active' : '' ?>">
+                <span class="room-avatar" style="background: rgba(59, 130, 246, 0.15); color: #3b82f6;"><svg class="ic"><use href="#i-home"/></svg></span>
+                <span class="room-item-body">
+                    <span class="room-item-title">Accueil</span>
+                    <span class="room-item-sub">Hub & découverte</span>
+                </span>
+            </a>
+            <a href="index.php?code=public" class="room-item <?= ($isPublicRoom && !$isWelcome) ? 'active' : '' ?>" data-code="public">
                 <span class="room-avatar room-avatar-public"><svg class="ic"><use href="#i-globe"/></svg></span>
                 <span class="room-item-body">
                     <span class="room-item-title">Salon public</span>
                     <span class="room-item-sub">Ouvert à tous, en direct</span>
                 </span>
             </a>
-            <div class="room-list-label">Salons privés récents</div>
+            <div class="room-list-label">Salons récents</div>
             <div id="recentRooms" class="recent-rooms"></div>
         </nav>
 
@@ -286,6 +312,198 @@ $e = static fn(string $s): string => htmlspecialchars($s, ENT_QUOTES, 'UTF-8');
     </aside>
     <div class="scrim" id="sidebarScrim"></div>
 
+    <!-- ============================ CHAT / WELCOME ROUTING ============================ -->
+    <?php if ($isWelcome): ?>
+    <!-- ============================ WELCOME / HUB VIEW ============================ -->
+    <main class="welcome-view" id="welcomeView">
+        <header class="welcome-topbar">
+            <div style="display:flex; align-items:center; gap:12px;">
+                <button type="button" class="icon-btn only-mobile" id="btnOpenSidebar" aria-label="Menu des salons">
+                    <svg class="ic"><use href="#i-menu"/></svg>
+                </button>
+                <a href="index.php" class="brand" title="OpenChat">
+                    <img src="assets/icons/icon.svg" alt="" class="brand-logo" width="32" height="32">
+                    <span class="brand-name">OpenChat</span>
+                </a>
+            </div>
+            <div style="display:flex; align-items:center; gap:8px;">
+                <button type="button" class="btn btn-soft btn-sm" data-open="roomModal" data-tab="create">
+                    <svg class="ic ic-sm"><use href="#i-plus"/></svg>
+                    <span class="hide-mobile">Créer un salon</span>
+                </button>
+                <button type="button" class="btn btn-primary btn-sm" id="btnWelcomeAuth">
+                    <svg class="ic ic-sm"><use href="#i-user"/></svg>
+                    <span><?= $authUser ? $e($authUser['username']) : 'Connexion' ?></span>
+                </button>
+            </div>
+        </header>
+
+        <div class="welcome-container">
+            <!-- HERO -->
+            <section class="welcome-hero">
+                <div class="welcome-pill">
+                    <svg class="ic ic-xs"><use href="#i-sparkles"/></svg>
+                    <span>Messagerie Instantanée PWA • Libre & Sans Inscription</span>
+                </div>
+                <h1 class="welcome-title">
+                    Communiquez et partagez <span class="welcome-title-accent">en toute liberté</span>
+                </h1>
+                <p class="welcome-desc">
+                    Rejoignez des salons publics, créez vos espaces privés, échangez en 1-à-1, envoyez des vocaux haute fidélité et transférez tous vos fichiers en quelques secondes.
+                </p>
+                <div class="welcome-cta-group">
+                    <a href="index.php?code=public" class="btn btn-primary btn-lg" style="box-shadow: 0 4px 20px var(--brand-glow);">
+                        <svg class="ic"><use href="#i-globe"/></svg>
+                        <span>Rejoindre le Salon Public</span>
+                        <svg class="ic ic-sm"><use href="#i-arrow-right"/></svg>
+                    </a>
+                    <button type="button" class="btn btn-soft btn-lg" data-open="roomModal" data-tab="create">
+                        <svg class="ic"><use href="#i-chat-plus"/></svg>
+                        <span>Créer un Salon Privé</span>
+                    </button>
+                    <button type="button" class="btn btn-ghost btn-lg" data-open="roomModal" data-tab="join">
+                        <svg class="ic"><use href="#i-key"/></svg>
+                        <span>Rejoindre par Code</span>
+                    </button>
+                </div>
+            </section>
+
+            <!-- PUBLIC ROOMS DISCOVERY -->
+            <section class="welcome-section" id="sectionPublicRooms">
+                <div class="welcome-section-head">
+                    <span class="welcome-section-eyebrow">Salons Ouverts</span>
+                    <h2 class="welcome-section-title">Salons Publics Disponibles</h2>
+                    <p class="welcome-section-sub">Choisissez un salon communautaire pour participer aux discussions en direct sans mot de passe.</p>
+                </div>
+
+                <div class="public-rooms-grid">
+                    <?php foreach ($publicRooms as $pRoom): 
+                        $pCode = (string)$pRoom['code'];
+                        $pTitle = (string)$pRoom['title'];
+                        $pOnline = (int)($pRoom['online_count'] ?? 0);
+                        $isOfficial = ($pCode === 'public');
+                        $iconHref = $isOfficial ? '#i-globe' : ($pCode === 'entraide' ? '#i-sparkles' : '#i-paperclip');
+                        $cardColor = $isOfficial ? 'var(--brand)' : ($pCode === 'entraide' ? '#38bdf8' : '#a855f7');
+                    ?>
+                    <a href="index.php?code=<?= urlencode($pCode) ?>" class="public-room-card">
+                        <span class="public-room-badge">
+                            <span class="live-pulse"></span>
+                            <span>En direct</span>
+                        </span>
+                        <div class="public-room-card-head">
+                            <span class="room-avatar room-avatar-lg" style="background: <?= $cardColor ?>; color: #fff;">
+                                <svg class="ic"><use href="<?= $iconHref ?>"/></svg>
+                            </span>
+                            <div>
+                                <h3 class="public-room-card-title"><?= $e($pTitle) ?></h3>
+                                <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 2px;">#<?= $e($pCode) ?></div>
+                            </div>
+                        </div>
+                        <p class="public-room-card-desc">
+                            <?php if ($pCode === 'public'): ?>
+                                Le salon public principal d'OpenChat. Discutez avec la communauté, partagez photos, vocaux et fichiers sans restriction.
+                            <?php elseif ($pCode === 'entraide'): ?>
+                                Entraide technique, questions, partages de code et astuces entre passionnés et développeurs.
+                            <?php elseif ($pCode === 'partage-express'): ?>
+                                Salon rapide pour transférer vos documents, images et fichiers volumineux entre appareils.
+                            <?php else: ?>
+                                Salon communautaire ouvert. Rejoignez la discussion en direct avec les autres participants.
+                            <?php endif; ?>
+                        </p>
+                        <div class="public-room-card-foot">
+                            <span><?= $pOnline > 0 ? "👥 {$pOnline} en ligne" : '💬 Rejoindre' ?></span>
+                            <span class="btn btn-soft btn-xs">Entrer ➔</span>
+                        </div>
+                    </a>
+                    <?php endforeach; ?>
+                </div>
+            </section>
+
+            <!-- RECENT DISCUSSIONS (Dynamically displayed if stored in localStorage) -->
+            <section class="welcome-section" id="welcomeRecentSection" style="display:none;">
+                <div class="welcome-section-head">
+                    <span class="welcome-section-eyebrow">Reprendre</span>
+                    <h2 class="welcome-section-title">Vos Salons Récents</h2>
+                    <p class="welcome-section-sub">Vos discussions et salons récemment visités sur cet appareil.</p>
+                </div>
+                <div class="public-rooms-grid" id="welcomeRecentGrid"></div>
+            </section>
+
+            <!-- FEATURES SHOWCASE -->
+            <section class="welcome-section">
+                <div class="welcome-section-head">
+                    <span class="welcome-section-eyebrow">Fonctionnalités</span>
+                    <h2 class="welcome-section-title">Une expérience complète et pensée pour vous</h2>
+                    <p class="welcome-section-sub">Tout ce dont vous avez besoin pour communiquer rapidement sur mobile, tablette et ordinateur.</p>
+                </div>
+
+                <div class="features-grid">
+                    <div class="feature-card">
+                        <div class="feature-icon-wrap" style="background: rgba(16, 185, 129, 0.15); color: #10b981;">
+                            <svg class="ic"><use href="#i-message"/></svg>
+                        </div>
+                        <h3 class="feature-card-title">Messagerie & Réactions Live</h3>
+                        <p class="feature-card-desc">Messages instantanés avec accusés de lecture (reçu / lu), réponses citées, modification de message et émojis interactifs.</p>
+                    </div>
+
+                    <div class="feature-card">
+                        <div class="feature-icon-wrap" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8;">
+                            <svg class="ic"><use href="#i-mic"/></svg>
+                        </div>
+                        <h3 class="feature-card-title">Messages Vocaux avec Onde</h3>
+                        <p class="feature-card-desc">Enregistrez vos vocaux en un toucher avec retour visuel en temps réel et visualiseur d'onde audio pendant l'écoute.</p>
+                    </div>
+
+                    <div class="feature-card">
+                        <div class="feature-icon-wrap" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b;">
+                            <svg class="ic"><use href="#i-sticker"/></svg>
+                        </div>
+                        <h3 class="feature-card-title">Stickers & Émojis Animés</h3>
+                        <p class="feature-card-desc">Bibliothèque de stickers expressifs WhatsApp-style et sélecteur d'émojis complet classé par catégories.</p>
+                    </div>
+
+                    <div class="feature-card">
+                        <div class="feature-icon-wrap" style="background: rgba(168, 85, 247, 0.15); color: #a855f7;">
+                            <svg class="ic"><use href="#i-image"/></svg>
+                        </div>
+                        <h3 class="feature-card-title">Photos & Vidéos HD</h3>
+                        <p class="feature-card-desc">Partagez vos photos et vidéos avec visionneuse plein écran haute qualité, sans redirection externe intempestive.</p>
+                    </div>
+
+                    <div class="feature-card">
+                        <div class="feature-icon-wrap" style="background: rgba(236, 72, 153, 0.15); color: #ec4899;">
+                            <svg class="ic"><use href="#i-file"/></svg>
+                        </div>
+                        <h3 class="feature-card-title">Partage Fichiers Tous Formats</h3>
+                        <p class="feature-card-desc">PDF, ZIP, APK, musiques, documents : glissez-déposez ou sélectionnez vos fichiers avec téléchargement direct en 1 clic.</p>
+                    </div>
+
+                    <div class="feature-card">
+                        <div class="feature-icon-wrap" style="background: rgba(99, 102, 241, 0.15); color: #818cf8;">
+                            <svg class="ic"><use href="#i-user"/></svg>
+                        </div>
+                        <h3 class="feature-card-title">Discussions Privées 1-à-1</h3>
+                        <p class="feature-card-desc">Recherchez n'importe quel utilisateur enregistré et engagez des conversations privées dédiées en toute sécurité.</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- FOOTER -->
+            <footer class="welcome-footer">
+                <div>
+                    <strong>OpenChat</strong> — Plateforme de communication instantanée libre & PWA.
+                </div>
+                <div style="display:flex; align-items:center; gap:16px;">
+                    <a href="https://github.com/nelson-siebi/openchat" target="_blank" rel="noopener" style="color:inherit; display:flex; align-items:center; gap:6px;">
+                        <svg class="ic ic-sm"><use href="#i-star"/></svg> GitHub
+                    </a>
+                    <span>•</span>
+                    <button type="button" class="btn btn-ghost btn-xs" data-open="settingsModal">Paramètres</button>
+                </div>
+            </footer>
+        </div>
+    </main>
+    <?php else: ?>
     <!-- ============================ CHAT ============================ -->
     <main class="chat" id="chat">
         <header class="chat-header">
@@ -293,6 +511,7 @@ $e = static fn(string $s): string => htmlspecialchars($s, ENT_QUOTES, 'UTF-8');
                 <svg class="ic"><use href="#i-menu"/></svg>
                 <span class="header-unread-dot" id="sidebarUnreadDot" hidden></span>
             </button>
+            <a href="index.php" class="icon-btn" title="Retour à l'accueil" aria-label="Accueil"><svg class="ic"><use href="#i-home"/></svg></a>
 
             <button type="button" class="room-ident" data-open="membersModal" title="Infos du salon">
                 <span class="room-avatar <?= $isPublicRoom ? 'room-avatar-public' : ($isDmRoom ? 'room-avatar-dm' : '') ?>" id="headerRoomAvatar"<?= ($isDmRoom && $dmTargetUser) ? ' style="background-color:' . $e($dmTargetUserColor) . '"' : '' ?>>
@@ -488,6 +707,7 @@ $e = static fn(string $s): string => htmlspecialchars($s, ENT_QUOTES, 'UTF-8');
             <input type="file" id="inputAudio" accept="audio/*" multiple hidden>
         </footer>
     </main>
+    <?php endif; ?>
 </div>
 
 <!-- ============================ MEDIA PREVIEW SHEET ============================ -->
@@ -960,6 +1180,7 @@ $e = static fn(string $s): string => htmlspecialchars($s, ENT_QUOTES, 'UTF-8');
 
 <script>
     window.OPENCHAT = {
+        isWelcome: <?= $isWelcome ? 'true' : 'false' ?>,
         room: <?= json_encode($roomCode) ?>,
         isPublic: <?= $isPublicRoom ? 'true' : 'false' ?>,
         isDm: <?= $isDmRoom ? 'true' : 'false' ?>,
