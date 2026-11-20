@@ -68,7 +68,8 @@ if ($method === 'POST') {
         }
         Config::jsonResponse([
             'success' => true,
-            'code' => Database::getPublicAccessCode()
+            'code' => Database::getPublicAccessCode(),
+            'protection_enabled' => Database::isPublicProtectionEnabled()
         ]);
     }
 
@@ -83,10 +84,29 @@ if ($method === 'POST') {
             Config::jsonResponse(['success' => false, 'error' => 'Le code d\'accès doit contenir au moins 3 caractères.'], 400);
         }
         Database::setPublicAccessCode($newCode);
+        if (isset($data['protection_enabled'])) {
+            Database::setPublicProtectionEnabled(!empty($data['protection_enabled']));
+        }
         Config::jsonResponse([
             'success' => true,
             'code' => $newCode,
+            'protection_enabled' => Database::isPublicProtectionEnabled(),
             'message' => 'Code d\'accès du salon public mis à jour avec succès.'
+        ]);
+    }
+
+    // 3b. Nelson Pro: Toggle Public Protection
+    if ($action === 'toggle_public_protection') {
+        $authUser = Database::getAuthUser();
+        if (!Database::isNelsonAdmin($authUser)) {
+            Config::jsonResponse(['success' => false, 'error' => 'Accès réservé exclusivement à Nelson Pro.'], 403);
+        }
+        $enabled = !empty($data['enabled']);
+        Database::setPublicProtectionEnabled($enabled);
+        Config::jsonResponse([
+            'success' => true,
+            'protection_enabled' => $enabled,
+            'message' => $enabled ? 'Protection par code activée sur le salon public.' : 'Salon public ouvert librement à tous.'
         ]);
     }
 
@@ -126,16 +146,8 @@ if ($method === 'POST') {
         ]);
     }
 
-    // 6. Create Private Room (requires authenticated account)
+    // 6. Create Room (open to guests and users, DMs handled via get_or_create_dm)
     $authUser = Database::getAuthUser();
-    if (!$authUser) {
-        Config::jsonResponse([
-            'success' => false,
-            'error' => 'Veuillez créer un compte ou vous connecter pour créer un salon privé.',
-            'auth_required' => true
-        ], 401);
-    }
-
     $requestedCode = trim($data['code'] ?? '');
     $title = trim($data['title'] ?? '');
 
@@ -175,7 +187,7 @@ if ($method === 'GET') {
 
     $authUser = Database::getAuthUser();
 
-    // Public room check
+    $isDm = str_starts_with($code, 'dm-');
     if ($code === 'public') {
         if (!Database::hasPublicAccess($authUser)) {
             Config::jsonResponse([
@@ -184,12 +196,12 @@ if ($method === 'GET') {
                 'public_access_required' => true
             ], 403);
         }
-    } else {
-        // Private rooms require an account
+    } else if ($isDm) {
+        // Direct messages require an account
         if (!$authUser) {
             Config::jsonResponse([
                 'success' => false,
-                'error' => 'Veuillez créer un compte ou vous connecter pour accéder à ce salon privé.',
+                'error' => 'Veuillez créer un compte ou vous connecter pour accéder à cette discussion privée.',
                 'auth_required' => true
             ], 401);
         }

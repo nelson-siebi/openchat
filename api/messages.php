@@ -31,6 +31,7 @@ if ($method === 'GET') {
     }
 
     $authUser = Database::getAuthUser();
+    $isDm = str_starts_with($roomCode, 'dm-');
     if ($roomCode === 'public') {
         if (!Database::hasPublicAccess($authUser)) {
             Config::jsonResponse([
@@ -39,11 +40,11 @@ if ($method === 'GET') {
                 'public_access_required' => true
             ], 403);
         }
-    } else {
+    } else if ($isDm) {
         if (!$authUser) {
             Config::jsonResponse([
                 'success' => false,
-                'error' => 'Veuillez créer un compte ou vous connecter pour accéder à ce salon privé.',
+                'error' => 'Veuillez vous connecter pour accéder à cette discussion privée.',
                 'auth_required' => true
             ], 401);
         }
@@ -87,6 +88,7 @@ if ($method === 'POST') {
     }
 
     $authUser = Database::getAuthUser();
+    $isDm = str_starts_with($roomCode, 'dm-');
     if ($roomCode === 'public') {
         if (!Database::hasPublicAccess($authUser)) {
             Config::jsonResponse([
@@ -95,11 +97,11 @@ if ($method === 'POST') {
                 'public_access_required' => true
             ], 403);
         }
-    } else {
+    } else if ($isDm) {
         if (!$authUser) {
             Config::jsonResponse([
                 'success' => false,
-                'error' => 'Veuillez créer un compte ou vous connecter pour accéder à ce salon privé.',
+                'error' => 'Veuillez vous connecter pour accéder à cette discussion privée.',
                 'auth_required' => true
             ], 401);
         }

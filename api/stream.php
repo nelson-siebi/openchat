@@ -47,14 +47,15 @@ if ($roomCode === '') {
 }
 
 $authUser = Database::getAuthUser();
+$isDm = str_starts_with($roomCode, 'dm-');
 if ($roomCode === 'public') {
     if (!Database::hasPublicAccess($authUser)) {
         sse('error', ['error' => 'Code d\'accès requis pour le salon public.', 'public_access_required' => true]);
         exit;
     }
-} else {
+} else if ($isDm) {
     if (!$authUser) {
-        sse('error', ['error' => 'Compte requis pour ce salon privé.', 'auth_required' => true]);
+        sse('error', ['error' => 'Compte requis pour cette discussion privée.', 'auth_required' => true]);
         exit;
     }
 }

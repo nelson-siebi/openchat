@@ -377,8 +377,13 @@
         getPublicCode() {
             return json('api/rooms.php', { method: 'POST', body: JSON.stringify({ action: 'get_public_code' }) });
         },
-        setPublicCode(code) {
-            return json('api/rooms.php', { method: 'POST', body: JSON.stringify({ action: 'set_public_code', code }) });
+        setPublicCode(code, protectionEnabled = null) {
+            const body = { action: 'set_public_code', code };
+            if (protectionEnabled !== null) body.protection_enabled = !!protectionEnabled;
+            return json('api/rooms.php', { method: 'POST', body: JSON.stringify(body) });
+        },
+        togglePublicProtection(enabled) {
+            return json('api/rooms.php', { method: 'POST', body: JSON.stringify({ action: 'toggle_public_protection', enabled: !!enabled }) });
         },
         getOrCreateDm(target) {
             return json('api/rooms.php', { method: 'POST', body: JSON.stringify({ action: 'get_or_create_dm', target }) });

@@ -29,9 +29,19 @@ if ($action === 'register') {
 
     $res = Database::registerUser($username, $password, $email, $avatarColor);
     if ($res['success']) {
+        $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https');
         setcookie('openchat_token', $res['token'], [
             'expires' => time() + (30 * 86400),
             'path' => '/',
+            'secure' => $isHttps,
+            'httponly' => false,
+            'samesite' => 'Lax'
+        ]);
+        $pubCode = Database::getPublicAccessCode();
+        setcookie('openchat_public_access', Database::getPublicAccessHash($pubCode), [
+            'expires' => time() + (30 * 86400),
+            'path' => '/',
+            'secure' => $isHttps,
             'httponly' => false,
             'samesite' => 'Lax'
         ]);
@@ -47,9 +57,19 @@ if ($action === 'login') {
 
     $res = Database::loginUser($login, $password);
     if ($res['success']) {
+        $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https');
         setcookie('openchat_token', $res['token'], [
             'expires' => time() + (30 * 86400),
             'path' => '/',
+            'secure' => $isHttps,
+            'httponly' => false,
+            'samesite' => 'Lax'
+        ]);
+        $pubCode = Database::getPublicAccessCode();
+        setcookie('openchat_public_access', Database::getPublicAccessHash($pubCode), [
+            'expires' => time() + (30 * 86400),
+            'path' => '/',
+            'secure' => $isHttps,
             'httponly' => false,
             'samesite' => 'Lax'
         ]);

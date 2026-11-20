@@ -1158,22 +1158,48 @@ class Database
         return hash('sha256', 'openchat_public_salt_' . $code);
     }
 
+    public static function isPublicProtectionEnabled(): bool
+    {
+        $val = self::getSetting('public_protection_enabled');
+        if ($val === null) {
+            // Par défaut désactivé pour éviter de bloquer ou déranger les utilisateurs
+            return false;
+        }
+        return $val === '1' || $val === 'true';
+    }
+
+    public static function setPublicProtectionEnabled(bool $enabled): bool
+    {
+        return self::setSetting('public_protection_enabled', $enabled ? '1' : '0');
+    }
+
     public static function hasPublicAccess(?array $authUser = null): bool
     {
+        // 0. Si la protection est désactivée, accès libre sans mot de passe
+        if (!self::isPublicProtectionEnabled()) {
+            return true;
+        }
+
+        // 1. Nelson Admin a toujours un accès direct
         if (self::isNelsonAdmin($authUser)) {
+            return true;
+        }
+
+        // 2. Tout utilisateur connecté a un accès direct sans mot de passe
+        if ($authUser !== null) {
             return true;
         }
 
         $currentCode = self::getPublicAccessCode();
         $validHash = self::getPublicAccessHash($currentCode);
 
-        // 1. Check Cookie
+        // 3. Cookie de déverrouillage
         $cookieHash = trim((string)($_COOKIE['openchat_public_access'] ?? ''));
         if ($cookieHash !== '' && hash_equals($validHash, $cookieHash)) {
             return true;
         }
 
-        // 2. Check HTTP headers (for API / SSE calls)
+        // 4. Check HTTP headers (for API / SSE calls)
         $headerCode = trim((string)($_SERVER['HTTP_X_ACCESS_CODE'] ?? ''));
         if ($headerCode !== '' && hash_equals($currentCode, $headerCode)) {
             return true;
@@ -1183,7 +1209,7 @@ class Database
             return true;
         }
 
-        // 3. Check query/body param
+        // 5. Check query/body param
         $paramCode = trim((string)($_REQUEST['public_access_code'] ?? ''));
         if ($paramCode !== '' && hash_equals($currentCode, $paramCode)) {
             return true;

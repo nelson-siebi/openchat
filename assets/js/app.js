@@ -511,7 +511,13 @@
                 const closer = e.target.closest('[data-close]');
                 if (closer) {
                     const modal = closer.closest('.modal');
-                    if (modal) this.closeOverlay(modal.id);
+                    if (modal) {
+                        if (modal.id === 'authModal' && this.authRequired && this.isDm) {
+                            location.href = 'index.php?code=public';
+                            return;
+                        }
+                        this.closeOverlay(modal.id);
+                    }
                 }
             });
 
@@ -519,6 +525,10 @@
                 modal.addEventListener('click', (e) => {
                     if (e.target === modal) {
                         if (modal.id === 'publicAccessModal' && this.publicAccessRequired) return;
+                        if (modal.id === 'authModal' && this.authRequired && this.isDm) {
+                            location.href = 'index.php?code=public';
+                            return;
+                        }
                         this.closeOverlay(modal.id);
                     }
                 });
@@ -961,32 +971,17 @@
 
             const btn = $('#btnInstantRoom');
             btn.addEventListener('click', async () => {
-                if (!this.authUser) {
-                    this.closeOverlay('roomModal');
-                    this.openAuthModal('Veuillez créer un compte ou vous connecter pour créer un salon privé.', true);
-                    return;
-                }
                 btn.disabled = true;
                 try {
                     const d = await api.createRoom();
                     this.goToRoom(d.room.code);
                 } catch (e) {
                     btn.disabled = false;
-                    if (e && e.auth_required) {
-                        this.closeOverlay('roomModal');
-                        this.openAuthModal(e.message, true);
-                    } else {
-                        toast(e.message, { type: 'err' });
-                    }
+                    toast(e.message || 'Impossible de créer le salon', { type: 'err' });
                 }
             });
             $('#formCustomRoom').addEventListener('submit', (e) => {
                 e.preventDefault();
-                if (!this.authUser) {
-                    this.closeOverlay('roomModal');
-                    this.openAuthModal('Veuillez créer un compte ou vous connecter pour créer un salon privé.', true);
-                    return;
-                }
                 const code = U.sanitizeCode($('#customRoomInput').value);
                 if (!code || code === 'public') {
                     toast('Choisissez un autre nom de salon', { type: 'err' });
@@ -996,11 +991,6 @@
             });
             $('#formJoinRoom').addEventListener('submit', (e) => {
                 e.preventDefault();
-                if (!this.authUser) {
-                    this.closeOverlay('roomModal');
-                    this.openAuthModal('Veuillez créer un compte ou vous connecter pour rejoindre un salon privé.', true);
-                    return;
-                }
                 const code = U.sanitizeCode($('#joinRoomInput').value);
                 if (code) this.goToRoom(code);
             });
@@ -1010,7 +1000,12 @@
             try { await api.presence('leave', this.room, this.username, this.avatarColor); } catch (e) { /* ignore */ }
             this.removeRecent(this.room);
             toast('Vous avez quitté le salon');
-            setTimeout(() => { location.href = 'index.php?code=public'; }, 350);
+            const remaining = this.recentRooms().filter((r) => r && r.code && r.code !== this.room);
+            if (remaining.length > 0) {
+                setTimeout(() => { location.href = `index.php?code=${encodeURIComponent(remaining[0].code)}`; }, 350);
+            } else {
+                setTimeout(() => { location.href = 'index.php?code=public'; }, 350);
+            }
         }
 
         handleUrlActions() {
@@ -3595,15 +3590,13 @@
                             toast(currentTab === 'register' ? 'Compte créé avec succès 🎉' : 'Connexion réussie 👋', { type: 'ok' });
                             this.closeOverlay('authModal');
 
-                            if (this.authRequired || (this.isPublic && this.publicAccessRequired)) {
-                                this.authRequired = false;
-                                if (this.isNelsonAdmin) {
-                                    this.publicAccessRequired = false;
-                                    this.closeOverlay('publicAccessModal');
-                                }
-                            }
+                            // Authenticated users never require public code or auth
+                            this.authRequired = false;
+                            this.publicAccessRequired = false;
+                            this.closeOverlay('publicAccessModal');
+                            document.body.classList.remove('public-locked');
 
-                            if (!this.publicAccessRequired && !this.authRequired && !this.hasStartedLoading) {
+                            if (!this.hasStartedLoading) {
                                 this.hasStartedLoading = true;
                                 this.loadInitial().then(() => this.connect());
                                 this.startPresence();
@@ -3698,6 +3691,18 @@
             const inputNew = $('#inputAdminNewCode');
             const errEl = $('#adminCodeError');
             const btnSubmit = $('#btnSubmitAdminCode');
+            const toggleProt = $('#toggleAdminProtection');
+            const protStatusText = $('#adminProtectionStatusText');
+
+            const updateProtectionUi = (enabled) => {
+                if (toggleProt) toggleProt.checked = !!enabled;
+                if (protStatusText) {
+                    protStatusText.textContent = enabled 
+                        ? 'Activée (les visiteurs doivent saisir le code)' 
+                        : 'Désactivée (salon ouvert à tous sans code)';
+                    protStatusText.style.color = enabled ? '#f59e0b' : 'var(--text-muted)';
+                }
+            };
 
             const openAdminCode = async () => {
                 if (!this.isNelsonAdmin) {
@@ -3711,10 +3716,11 @@
 
                 try {
                     const res = await OC.api.getPublicCode();
-                    if (res && res.success && res.code) {
-                        this.adminCurrentCode = res.code;
+                    if (res && res.success) {
+                        this.adminCurrentCode = res.code || '';
                         if (currentDisplay) currentDisplay.textContent = res.code;
                         if (inputNew) inputNew.placeholder = res.code;
+                        updateProtectionUi(!!res.protection_enabled);
                     }
                 } catch (err) {
                     if (currentDisplay) currentDisplay.textContent = 'Erreur';
@@ -3724,6 +3730,22 @@
                     }
                 }
             };
+
+            if (toggleProt) {
+                toggleProt.addEventListener('change', async () => {
+                    const enabled = toggleProt.checked;
+                    try {
+                        const res = await OC.api.togglePublicProtection(enabled);
+                        if (res && res.success) {
+                            updateProtectionUi(enabled);
+                            toast(res.message || (enabled ? 'Protection activée' : 'Protection désactivée'), { type: 'ok' });
+                        }
+                    } catch (err) {
+                        toggleProt.checked = !enabled;
+                        toast(err.message || 'Erreur lors du changement de protection', { type: 'err' });
+                    }
+                });
+            }
 
             const btnSidebar = $('#btnAdminPublicCode');
             const btnHeader = $('#btnHeaderAdminCode');

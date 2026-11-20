@@ -44,8 +44,8 @@ $roomDisplayTitle = $isPublicRoom
     : ($isDmRoom 
         ? ($dmTargetUser ? 'Discussion avec ' . $dmTargetUser : 'Discussion privée') 
         : (!empty($room['title']) && $room['title'] !== 'Salon ' . strtoupper($roomCode) ? $room['title'] : $roomCode));
-$authRequired = (!$isPublicRoom && !$authUser);
-$publicAccessRequired = ($isPublicRoom && !$hasPublicAccess);
+$authRequired = ($isDmRoom && !$authUser);
+$publicAccessRequired = ($isPublicRoom && !Database::hasPublicAccess($authUser));
 
 $pageTitle = $isPublicRoom 
     ? 'OpenChat - Chat & Partage Instantané Sans Inscription' 
@@ -915,34 +915,44 @@ $e = static fn(string $s): string => htmlspecialchars($s, ENT_QUOTES, 'UTF-8');
         </div>
 
         <p class="modal-text" style="font-size: 0.88rem; color: var(--text-2); margin-bottom: 14px;">
-            Espace administrateur <strong>Nelson Pro</strong> : vous pouvez consulter ou redéfinir le mot de passe d'accès que les autres utilisateurs doivent obligatoirement saisir pour rejoindre le salon public. Seul vous pouvez entrer sans code.
+            Espace administrateur <strong>Nelson Pro</strong> : vous pouvez activer/désactiver la restriction par code sur le salon public et définir le code d'accès. Les utilisateurs connectés et vous-même entrez toujours librement.
         </p>
 
-        <div style="background: var(--bg-hover); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between;">
+        <label class="switch-row" style="background: var(--bg-hover); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; margin-bottom: 14px;">
             <div>
-                <div style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-3); font-weight: 600;">Code actuel</div>
-                <div id="adminCurrentCodeDisplay" style="font-size: 1.15rem; font-weight: 800; color: var(--accent); letter-spacing: 0.05em; margin-top: 2px;">Chargement…</div>
+                <div style="font-weight: 700; font-size: 0.95rem;">Exiger un code sur le salon public</div>
+                <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 2px;" id="adminProtectionStatusText">Chargement…</div>
             </div>
-            <button type="button" class="btn btn-soft btn-xs" id="btnCopyAdminCode" title="Copier le code">
-                <svg class="ic ic-sm"><use href="#i-copy"/></svg> <span>Copier</span>
-            </button>
-        </div>
+            <input type="checkbox" class="switch" id="toggleAdminProtection">
+        </label>
 
-        <form id="formAdminSetCode" autocomplete="off">
-            <div class="form-group">
-                <label for="inputAdminNewCode">Nouveau code d'accès</label>
-                <input type="text" id="inputAdminNewCode" class="input" placeholder="Ex: openchat2026" required minlength="3" style="font-size: 1rem; font-weight: 600;">
-            </div>
-
-            <div class="auth-error" id="adminCodeError" style="display:none; color: #ef4444; font-size: 0.85rem; margin-top: 8px; font-weight: 500; padding: 6px 10px; background: rgba(239, 68, 68, 0.1); border-radius: 8px;"></div>
-
-            <div class="modal-actions" style="margin-top: 16px;">
-                <button type="button" class="btn btn-soft" data-close>Annuler</button>
-                <button type="submit" class="btn btn-primary" id="btnSubmitAdminCode">
-                    <span>Mettre à jour le code</span>
+        <div id="adminCodeDetailsSection">
+            <div style="background: var(--bg-hover); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between;">
+                <div>
+                    <div style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-3); font-weight: 600;">Code actuel</div>
+                    <div id="adminCurrentCodeDisplay" style="font-size: 1.15rem; font-weight: 800; color: var(--accent); letter-spacing: 0.05em; margin-top: 2px;">Chargement…</div>
+                </div>
+                <button type="button" class="btn btn-soft btn-xs" id="btnCopyAdminCode" title="Copier le code">
+                    <svg class="ic ic-sm"><use href="#i-copy"/></svg> <span>Copier</span>
                 </button>
             </div>
-        </form>
+
+            <form id="formAdminSetCode" autocomplete="off">
+                <div class="form-group">
+                    <label for="inputAdminNewCode">Nouveau code d'accès</label>
+                    <input type="text" id="inputAdminNewCode" class="input" placeholder="Ex: openchat2026" required minlength="3" style="font-size: 1rem; font-weight: 600;">
+                </div>
+
+                <div class="auth-error" id="adminCodeError" style="display:none; color: #ef4444; font-size: 0.85rem; margin-top: 8px; font-weight: 500; padding: 6px 10px; background: rgba(239, 68, 68, 0.1); border-radius: 8px;"></div>
+
+                <div class="modal-actions" style="margin-top: 16px;">
+                    <button type="button" class="btn btn-soft" data-close>Fermer</button>
+                    <button type="submit" class="btn btn-primary" id="btnSubmitAdminCode">
+                        <span>Mettre à jour le code</span>
+                    </button>
+                </div>
+            </form>
+        </div>
     </div>
 </div>
 
