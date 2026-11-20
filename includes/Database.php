@@ -214,12 +214,13 @@ class Database
             }
             // Re-create the clean new public room
             $db->exec("INSERT OR IGNORE INTO rooms (code, title, created_at, last_activity) VALUES ('public', 'Salon Public Général', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)");
-            // Ensure additional public rooms exist for discovery
-            $db->exec("INSERT OR IGNORE INTO rooms (code, title, created_at, last_activity) VALUES ('entraide', 'Entraide & Tech', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)");
-            $db->exec("INSERT OR IGNORE INTO rooms (code, title, created_at, last_activity) VALUES ('partage-express', 'Partage Express & Médias', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)");
-
             $db->exec("INSERT OR REPLACE INTO app_settings (setting_key, setting_value, updated_at) VALUES ('migrated_public_to_private', '1', CURRENT_TIMESTAMP)");
         }
+
+        // Purge any fictitious mock rooms
+        $db->exec("DELETE FROM rooms WHERE code IN ('entraide', 'partage-express')");
+        $db->exec("DELETE FROM messages WHERE room_code IN ('entraide', 'partage-express')");
+        $db->exec("DELETE FROM room_presence WHERE room_code IN ('entraide', 'partage-express')");
 
         $db->exec("CREATE INDEX IF NOT EXISTS idx_messages_room_updated ON messages (room_code, updated_at)");
     }
@@ -272,18 +273,13 @@ class Database
                    (SELECT COUNT(*) FROM room_presence p WHERE p.room_code = r.code AND p.last_seen >= datetime('now', '-5 minutes')) AS online_count,
                    (SELECT COUNT(*) FROM messages m WHERE m.room_code = r.code) AS message_count
             FROM rooms r
-            WHERE r.code IN ('public', 'entraide', 'partage-express')
-               OR (r.code NOT LIKE 'dm-%' AND r.code NOT LIKE '%private%' AND r.code NOT LIKE 'nelson%')
-            GROUP BY r.code
-            ORDER BY CASE WHEN r.code = 'public' THEN 0 WHEN r.code = 'entraide' THEN 1 WHEN r.code = 'partage-express' THEN 2 ELSE 3 END, r.last_activity DESC
-            LIMIT 6
+            WHERE r.code = 'public'
+            LIMIT 1
         ");
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
         if (empty($rows)) {
             return [
-                ['code' => 'public', 'title' => 'Salon Public Général', 'online_count' => 1, 'message_count' => 0],
-                ['code' => 'entraide', 'title' => 'Entraide & Tech', 'online_count' => 0, 'message_count' => 0],
-                ['code' => 'partage-express', 'title' => 'Partage Express & Médias', 'online_count' => 0, 'message_count' => 0],
+                ['code' => 'public', 'title' => 'Salon Public Général', 'online_count' => 0, 'message_count' => 0],
             ];
         }
         return $rows;

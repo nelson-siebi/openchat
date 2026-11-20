@@ -368,54 +368,41 @@ $e = static fn(string $s): string => htmlspecialchars($s, ENT_QUOTES, 'UTF-8');
                 </div>
             </section>
 
-            <!-- PUBLIC ROOMS DISCOVERY -->
+            <!-- PUBLIC ROOM DISCOVERY -->
             <section class="welcome-section" id="sectionPublicRooms">
                 <div class="welcome-section-head">
-                    <span class="welcome-section-eyebrow">Salons Ouverts</span>
-                    <h2 class="welcome-section-title">Salons Publics Disponibles</h2>
-                    <p class="welcome-section-sub">Choisissez un salon communautaire pour participer aux discussions en direct sans mot de passe.</p>
+                    <span class="welcome-section-eyebrow">Espace Communautaire</span>
+                    <h2 class="welcome-section-title">Salon Public Général</h2>
+                    <p class="welcome-section-sub">Rejoignez la discussion ouverte à tous pour échanger instantanément en direct sans mot de passe.</p>
                 </div>
 
-                <div class="public-rooms-grid">
-                    <?php foreach ($publicRooms as $pRoom): 
-                        $pCode = (string)$pRoom['code'];
-                        $pTitle = (string)$pRoom['title'];
-                        $pOnline = (int)($pRoom['online_count'] ?? 0);
-                        $isOfficial = ($pCode === 'public');
-                        $iconHref = $isOfficial ? '#i-globe' : ($pCode === 'entraide' ? '#i-sparkles' : '#i-paperclip');
-                        $cardColor = $isOfficial ? 'var(--brand)' : ($pCode === 'entraide' ? '#38bdf8' : '#a855f7');
+                <div class="public-room-single">
+                    <?php 
+                        $mainRoom = $publicRooms[0] ?? ['code' => 'public', 'title' => 'Salon Public Général', 'online_count' => 0];
+                        $pOnline = (int)($mainRoom['online_count'] ?? 0);
                     ?>
-                    <a href="index.php?code=<?= urlencode($pCode) ?>" class="public-room-card">
+                    <a href="index.php?code=public" class="public-room-card public-room-card-highlight">
                         <span class="public-room-badge">
                             <span class="live-pulse"></span>
                             <span>En direct</span>
                         </span>
                         <div class="public-room-card-head">
-                            <span class="room-avatar room-avatar-lg" style="background: <?= $cardColor ?>; color: #fff;">
-                                <svg class="ic"><use href="<?= $iconHref ?>"/></svg>
+                            <span class="room-avatar room-avatar-lg room-avatar-public">
+                                <svg class="ic"><use href="#i-globe"/></svg>
                             </span>
                             <div>
-                                <h3 class="public-room-card-title"><?= $e($pTitle) ?></h3>
-                                <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 2px;">#<?= $e($pCode) ?></div>
+                                <h3 class="public-room-card-title"><?= $e((string)$mainRoom['title']) ?></h3>
+                                <div style="font-size: 0.82rem; color: var(--text-muted); margin-top: 2px;">#public • Ouvert à tous</div>
                             </div>
                         </div>
                         <p class="public-room-card-desc">
-                            <?php if ($pCode === 'public'): ?>
-                                Le salon public principal d'OpenChat. Discutez avec la communauté, partagez photos, vocaux et fichiers sans restriction.
-                            <?php elseif ($pCode === 'entraide'): ?>
-                                Entraide technique, questions, partages de code et astuces entre passionnés et développeurs.
-                            <?php elseif ($pCode === 'partage-express'): ?>
-                                Salon rapide pour transférer vos documents, images et fichiers volumineux entre appareils.
-                            <?php else: ?>
-                                Salon communautaire ouvert. Rejoignez la discussion en direct avec les autres participants.
-                            <?php endif; ?>
+                            Le salon public officiel d'OpenChat. Discutez en temps réel avec tous les participants connectés, échangez des messages, des vocaux haute fidélité, des photos et des fichiers sans inscription.
                         </p>
                         <div class="public-room-card-foot">
-                            <span><?= $pOnline > 0 ? "👥 {$pOnline} en ligne" : '💬 Rejoindre' ?></span>
-                            <span class="btn btn-soft btn-xs">Entrer ➔</span>
+                            <span><?= $pOnline > 0 ? "👥 {$pOnline} en ligne actuellement" : '💬 Ouvert à tous' ?></span>
+                            <span class="btn btn-primary btn-sm">Rejoindre le salon ➔</span>
                         </div>
                     </a>
-                    <?php endforeach; ?>
                 </div>
             </section>
 

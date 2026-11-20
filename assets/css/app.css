@@ -2528,6 +2528,11 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
     grid-template-columns: repeat(auto-fill, minmax(310px, 1fr));
     gap: 18px;
 }
+.public-room-single {
+    max-width: 680px;
+    margin: 0 auto;
+    width: 100%;
+}
 .public-room-card {
     background: var(--bg-elev);
     border: 1px solid var(--border);
@@ -2542,6 +2547,15 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
     color: inherit;
     position: relative;
     overflow: hidden;
+}
+.public-room-card-highlight {
+    background: linear-gradient(135deg, var(--bg-elev) 0%, rgba(16, 185, 129, 0.05) 100%);
+    border: 1px solid rgba(16, 185, 129, 0.28);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+}
+.public-room-card-highlight:hover {
+    border-color: var(--brand);
+    box-shadow: 0 12px 32px var(--brand-glow);
 }
 .public-room-card:hover {
     transform: translateY(-3px);
