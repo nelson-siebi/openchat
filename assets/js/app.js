@@ -45,6 +45,8 @@
             this.isNelsonAdmin = !!CFG.isNelsonAdmin;
             this.publicAccessRequired = !!CFG.publicAccessRequired;
             this.isDm = !!CFG.isDm;
+            this.dmTarget = CFG.dmTarget || '';
+            this.dmTargetColor = CFG.dmTargetColor || '';
             this.hasStartedLoading = false;
 
             this.username = (this.authUser && this.authUser.username) || store.get('openchat_username') || this.makeName();
@@ -332,10 +334,11 @@
             if (this.isPublic) return;
             const existing = this.recentRooms().find((r) => r.code === this.room);
             const list = this.recentRooms().filter((r) => r.code !== this.room);
+            const defTitle = this.isDm ? (this.dmTarget ? `Discussion avec ${this.dmTarget}` : 'Discussion privée') : this.room;
             list.unshift({
                 code: this.room,
-                title: (existing && existing.title) || (this.isDm ? 'Discussion privée' : this.room),
-                targetUser: (existing && existing.targetUser) || null,
+                title: (existing && existing.title && !existing.title.startsWith('Salon dm-')) ? existing.title : defTitle,
+                targetUser: this.dmTarget || (existing && existing.targetUser) || null,
                 at: Date.now()
             });
             store.setJson('openchat_recent_rooms', list.slice(0, 15));
@@ -3082,17 +3085,31 @@
         }
 
         bindVisibility() {
+            const onActive = () => {
+                if (document.hidden) return;
+                this.hiddenUnread = 0;
+                document.title = this.baseTitle;
+                if (navigator.clearAppBadge) navigator.clearAppBadge().catch(() => {});
+                this.markReadNow();
+            };
+
             document.addEventListener('visibilitychange', () => {
                 if (document.hidden) {
                     this.stopTyping();
                     return;
                 }
-                this.hiddenUnread = 0;
-                document.title = this.baseTitle;
-                if (navigator.clearAppBadge) navigator.clearAppBadge().catch(() => {});
+                onActive();
                 if (!this.es || this.es.readyState === 2) this.connect();
                 this.ping();
             });
+            window.addEventListener('focus', onActive);
+
+            const inputEl = $('#input');
+            if (inputEl) {
+                inputEl.addEventListener('focus', () => this.markReadNow());
+                inputEl.addEventListener('click', () => this.markReadNow());
+            }
+
             window.addEventListener('online', () => {
                 toast('Connexion rétablie', { type: 'ok' });
                 this.connect();

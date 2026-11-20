@@ -627,7 +627,7 @@ class Database
         $stmt = self::getConnection()->prepare("
             SELECT COALESCE(MAX(last_read_id), 0)
             FROM room_presence
-            WHERE room_code = :room AND username != :user
+            WHERE room_code = :room AND LOWER(username) != LOWER(:user)
         ");
         $stmt->execute([':room' => $roomCode, ':user' => $excludeUser]);
         return (int)$stmt->fetchColumn();
@@ -639,7 +639,9 @@ class Database
         $stmt = self::getConnection()->prepare("
             SELECT COUNT(*)
             FROM room_presence
-            WHERE room_code = :room AND username != :user
+            WHERE room_code = :room 
+              AND LOWER(username) != LOWER(:user)
+              AND last_seen >= datetime('now', '-5 minutes')
         ");
         $stmt->execute([':room' => $roomCode, ':user' => $excludeUser]);
         return (int)$stmt->fetchColumn();
@@ -836,8 +838,29 @@ class Database
         $hash = substr(hash('sha256', 'dm:' . $pair[0] . ':' . $pair[1]), 0, 12);
         $dmCode = 'dm-' . $hash;
 
-        $title = "Discussion privée";
-        return self::getOrCreateRoom($dmCode, $title);
+        $title = "DM:" . $pair[0] . ":" . $pair[1];
+        $room = self::getOrCreateRoom($dmCode, $title);
+        if ($room && (empty($room['title']) || $room['title'] === 'Discussion privée' || !str_starts_with((string)$room['title'], 'DM:'))) {
+            $db = self::getConnection();
+            $db->prepare("UPDATE rooms SET title = :t WHERE code = :c")->execute([':t' => $title, ':c' => $dmCode]);
+            $room['title'] = $title;
+        }
+        return $room;
+    }
+
+    public static function getUserByName(string $username): ?array
+    {
+        $username = trim($username);
+        if ($username === '') return null;
+        $db = self::getConnection();
+        $stmt = $db->prepare("SELECT id, username, email, avatar_color, is_admin, last_login, created_at FROM users WHERE LOWER(username) = LOWER(:u) LIMIT 1");
+        $stmt->execute([':u' => $username]);
+        $row = $stmt->fetch();
+        if ($row) {
+            $row['is_admin'] = (int)($row['is_admin'] ?? 0) === 1 || self::isNelsonAdmin($row);
+            return $row;
+        }
+        return null;
     }
 
     public static function searchUsers(string $query, int $limit = 20): array

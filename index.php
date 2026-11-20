@@ -23,11 +23,35 @@ $room = Database::getOrCreateRoom($requestedCode, $requestedCode === 'public' ? 
 $isPublicRoom = ($room['code'] === 'public');
 $roomCode = (string)$room['code'];
 $isDmRoom = str_starts_with($roomCode, 'dm-');
-$roomDisplayTitle = $isPublicRoom ? 'Salon public' : ($isDmRoom ? 'Discussion privée' : (!empty($room['title']) && $room['title'] !== 'Salon ' . strtoupper($roomCode) ? $room['title'] : $roomCode));
+$dmTargetUser = '';
+$dmTargetUserColor = '#6366f1';
+if ($isDmRoom && !empty($room['title']) && str_starts_with($room['title'], 'DM:')) {
+    $parts = explode(':', substr($room['title'], 3));
+    if (count($parts) >= 2) {
+        $uCurrent = strtolower((string)($authUser['username'] ?? ''));
+        $targetName = ($uCurrent === strtolower($parts[0])) ? $parts[1] : $parts[0];
+        $tUser = Database::getUserByName($targetName);
+        if ($tUser) {
+            $dmTargetUser = $tUser['username'];
+            $dmTargetUserColor = $tUser['avatar_color'] ?? '#6366f1';
+        } else {
+            $dmTargetUser = $targetName;
+        }
+    }
+}
+$roomDisplayTitle = $isPublicRoom 
+    ? 'Salon public' 
+    : ($isDmRoom 
+        ? ($dmTargetUser ? 'Discussion avec ' . $dmTargetUser : 'Discussion privée') 
+        : (!empty($room['title']) && $room['title'] !== 'Salon ' . strtoupper($roomCode) ? $room['title'] : $roomCode));
 $authRequired = (!$isPublicRoom && !$authUser);
 $publicAccessRequired = ($isPublicRoom && !$hasPublicAccess);
 
-$pageTitle = $isPublicRoom ? 'OpenChat - Chat & Partage Instantané Sans Inscription' : ($isDmRoom ? 'Discussion privée - OpenChat' : 'Salon ' . $roomCode . ' - OpenChat');
+$pageTitle = $isPublicRoom 
+    ? 'OpenChat - Chat & Partage Instantané Sans Inscription' 
+    : ($isDmRoom 
+        ? ($dmTargetUser ? 'Discussion avec ' . $dmTargetUser . ' - OpenChat' : 'Discussion privée - OpenChat') 
+        : 'Salon ' . $roomCode . ' - OpenChat');
 $pageDesc = 'Partagez en 1 seconde des messages, liens, photos, vocaux et fichiers entre PC et smartphone ou avec vos amis, sans compte ni mot de passe.';
 $baseUrl = Config::getBaseUrl();
 $canonicalUrl = $baseUrl . '/index.php' . ($isPublicRoom ? '' : '?code=' . urlencode($roomCode));
@@ -271,8 +295,8 @@ $e = static fn(string $s): string => htmlspecialchars($s, ENT_QUOTES, 'UTF-8');
             </button>
 
             <button type="button" class="room-ident" data-open="membersModal" title="Infos du salon">
-                <span class="room-avatar <?= $isPublicRoom ? 'room-avatar-public' : ($isDmRoom ? 'room-avatar-dm' : '') ?>" id="headerRoomAvatar">
-                    <?php if ($isPublicRoom): ?><svg class="ic"><use href="#i-globe"/></svg><?php elseif ($isDmRoom): ?><svg class="ic"><use href="#i-user"/></svg><?php else: ?><?= $e(strtoupper(mb_substr($roomCode, 0, 2))) ?><?php endif; ?>
+                <span class="room-avatar <?= $isPublicRoom ? 'room-avatar-public' : ($isDmRoom ? 'room-avatar-dm' : '') ?>" id="headerRoomAvatar"<?= ($isDmRoom && $dmTargetUser) ? ' style="background-color:' . $e($dmTargetUserColor) . '"' : '' ?>>
+                    <?php if ($isPublicRoom): ?><svg class="ic"><use href="#i-globe"/></svg><?php elseif ($isDmRoom): ?><?= $dmTargetUser ? $e(strtoupper(mb_substr($dmTargetUser, 0, 2))) : '<svg class="ic"><use href="#i-user"/></svg>' ?><?php else: ?><?= $e(strtoupper(mb_substr($roomCode, 0, 2))) ?><?php endif; ?>
                 </span>
                 <span class="room-ident-body">
                     <span class="room-ident-title">
@@ -716,8 +740,8 @@ $e = static fn(string $s): string => htmlspecialchars($s, ENT_QUOTES, 'UTF-8');
             <button type="button" class="icon-btn" data-close aria-label="Fermer"><svg class="ic"><use href="#i-x"/></svg></button>
         </div>
         <div class="room-card">
-            <span class="room-avatar room-avatar-lg <?= $isPublicRoom ? 'room-avatar-public' : ($isDmRoom ? 'room-avatar-dm' : '') ?>" id="membersRoomAvatar">
-                <?php if ($isPublicRoom): ?><svg class="ic"><use href="#i-globe"/></svg><?php elseif ($isDmRoom): ?><svg class="ic"><use href="#i-user"/></svg><?php else: ?><?= $e(strtoupper(mb_substr($roomCode, 0, 2))) ?><?php endif; ?>
+            <span class="room-avatar room-avatar-lg <?= $isPublicRoom ? 'room-avatar-public' : ($isDmRoom ? 'room-avatar-dm' : '') ?>" id="membersRoomAvatar"<?= ($isDmRoom && $dmTargetUser) ? ' style="background-color:' . $e($dmTargetUserColor) . '"' : '' ?>>
+                <?php if ($isPublicRoom): ?><svg class="ic"><use href="#i-globe"/></svg><?php elseif ($isDmRoom): ?><?= $dmTargetUser ? $e(strtoupper(mb_substr($dmTargetUser, 0, 2))) : '<svg class="ic"><use href="#i-user"/></svg>' ?><?php else: ?><?= $e(strtoupper(mb_substr($roomCode, 0, 2))) ?><?php endif; ?>
             </span>
             <div>
                 <div class="room-card-title"><?= $e($roomDisplayTitle) ?></div>
@@ -929,6 +953,8 @@ $e = static fn(string $s): string => htmlspecialchars($s, ENT_QUOTES, 'UTF-8');
         room: <?= json_encode($roomCode) ?>,
         isPublic: <?= $isPublicRoom ? 'true' : 'false' ?>,
         isDm: <?= $isDmRoom ? 'true' : 'false' ?>,
+        dmTarget: <?= json_encode($dmTargetUser) ?>,
+        dmTargetColor: <?= json_encode($dmTargetUserColor) ?>,
         roomTitle: <?= json_encode($roomDisplayTitle) ?>,
         shareUrl: <?= json_encode($shareUrl, JSON_UNESCAPED_SLASHES) ?>,
         maxFileMb: <?= (int)Config::MAX_FILE_SIZE_MB ?>,
